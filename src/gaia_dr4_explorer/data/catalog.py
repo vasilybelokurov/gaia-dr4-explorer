@@ -15,10 +15,11 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
+from importlib.resources import files
 
-#: Shipped alongside the package docs.
-REFERENCE_CSV = Path(__file__).resolve().parents[3] / "docs" / "prerelease_reference.csv"
+#: Shipped as package data, so it travels in the wheel -- the static browser
+#: build has no repository checkout to read a docs/ directory from.
+REFERENCE_CSV = files("gaia_dr4_explorer.resources") / "prerelease_reference.csv"
 
 #: Category labels used on the ESA prerelease page.
 CATEGORY_LABELS = {
@@ -53,9 +54,9 @@ class CatalogEntry:
 
 @lru_cache(maxsize=1)
 def _rows() -> tuple[dict[str, str], ...]:
-    if not REFERENCE_CSV.exists():
+    if not REFERENCE_CSV.is_file():
         return ()
-    with REFERENCE_CSV.open() as fh:
+    with REFERENCE_CSV.open(encoding="utf-8") as fh:
         return tuple(csv.DictReader(fh))
 
 

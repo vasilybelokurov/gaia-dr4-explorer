@@ -13,9 +13,10 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
+from importlib.resources import files
 
-DR3_PRODUCTS_CSV = Path(__file__).resolve().parents[3] / "docs" / "dr3_products.csv"
+#: Package data, so availability can be answered in the browser build too.
+DR3_PRODUCTS_CSV = files("gaia_dr4_explorer.resources") / "dr3_products.csv"
 
 #: The release these flags describe.
 RELEASE = "Gaia DR3"
@@ -50,10 +51,10 @@ def _as_bool(value: str) -> bool:
 @lru_cache(maxsize=1)
 def dr3_availability() -> dict[int, Dr3Availability]:
     """Flags keyed by source identifier, empty if the table is missing."""
-    if not DR3_PRODUCTS_CSV.exists():
+    if not DR3_PRODUCTS_CSV.is_file():
         return {}
     out: dict[int, Dr3Availability] = {}
-    with DR3_PRODUCTS_CSV.open() as fh:
+    with DR3_PRODUCTS_CSV.open(encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             sid = int(row["source_id"])
             out[sid] = Dr3Availability(

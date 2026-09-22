@@ -34,6 +34,11 @@ gaia-dr4-explorer = "gaia_dr4_explorer.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The reference tables must travel in the wheel: the static browser build has
+# no repository checkout to read them from.
+"gaia_dr4_explorer.resources" = ["*.csv"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
@@ -44,8 +49,13 @@ addopts = "-m 'not network' --strict-markers"
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "static"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "NPY"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# The Pyodide entry point is a script, not a module: its first-party import of
+# the sibling _bundled_data cannot be resolved by the import sorter.
+"static/app.py" = ["E402"]

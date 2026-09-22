@@ -1,0 +1,63 @@
+name: Build and deploy the browser build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ui]"
+
+      - name: Test
+        # The browser build ships this code, so it does not ship untested.
+        run: |
+          ruff check .
+          pytest -q
+
+      - name: Build the Pyodide site
+        run: python static/build.py --out site
+
+      - name: Check the build is self-contained
+        run: |
+          test -f site/index.html
+          test -f site/app.js
+          test -f site/app.resources.zip
+          # No credential may reach a public artifact.
+          ! grep -rqiE "ADS_API_TOKEN|api[_-]?key['\"]?\s*[:=]\s*['\"][A-Za-z0-9]{16}" site/
+          echo "site is $(du -sh site | cut -f1)"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

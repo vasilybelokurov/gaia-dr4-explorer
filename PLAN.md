@@ -337,7 +337,7 @@ Rules that follow, enforced from Phase 0:
   Consequence, decided now rather than at Phase 8: the **static profile is an
   inspection-only viewer** — bundled prerelease data, normalization, and every Phase 4–5
   astrometry view, with precomputed fit results loaded from
-  `docs/prerelease_reference.csv` instead of a live fit. The **server profile** keeps the
+  `src/gaia_dr4_explorer/resources/prerelease_reference.csv` instead of a live fit. The **server profile** keeps the
   live `Run DR4-like source update` button. The UI must therefore be able to render the fit
   panel from a stored result object, not only from a freshly computed one — a Phase 7
   requirement, not a later retrofit.
@@ -443,7 +443,7 @@ Requirements:
 Sidebar: data source ("DR4 prerelease"), source dropdown, source-ID text input, reload, cache
 status, and an "RC3" release badge.
 
-Ship `docs/prerelease_reference.csv` (already generated, 12 rows × 26 columns) as both the
+Ship `src/gaia_dr4_explorer/resources/prerelease_reference.csv` (already generated, 12 rows × 26 columns) as both the
 overview metadata and a regression fixture. It separates:
 - **from the release page:** `common_name`, `sample_category`, `g_mag_page`, `parallax_page_mas`
 - **computed from the VOTable:** `n_transits`, `n_ccd_slots`, `n_ccd_finite`,
@@ -595,7 +595,7 @@ identifiers. Commit.
 
 ## 9. Acceptance tests
 
-Integration fixture: `docs/prerelease_reference.csv`. All values below were produced with
+Integration fixture: `src/gaia_dr4_explorer/resources/prerelease_reference.csv`. All values below were produced with
 astropy 8.0.1, numpy 2.5.3, pandas 2.3.3, gaiasupdate 0.1.2 on 2026-09-22.
 
 **T1 — structure.** 1008 rows, 12 sources, 37 columns, all CCD arrays length 10 or 0,

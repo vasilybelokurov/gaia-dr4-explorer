@@ -22,6 +22,22 @@ This is an explorer and diagnostic environment, not a bulk catalogue-analysis sy
 | 9 | Photometry plugin (Gaia DR3 light curves) | done |
 | 10–11 | Spectra, SIMBAD/ADS context | not started |
 
+## Live browser version
+
+<https://vasilybelokurov.github.io/gaia-dr4-explorer/>
+
+Runs entirely in your browser via Pyodide, with the prerelease archive bundled
+into the page. It does the data loading, normalization and every astrometry
+view. Two things it cannot do, and says so:
+
+- **the live fit** — `gaiasupdate` imports `astroquery` at module scope, and
+  `astroquery` is not in the Pyodide distribution (Pyodide also ships pandas 3.x
+  against `gaiasupdate`'s `pandas<3.0`). Fit results are shown from the
+  precomputed reference table instead.
+- **Gaia DR3 photometry** — needs a live archive request.
+
+Run it locally for both.
+
 ## Install
 
 ```bash
@@ -69,7 +85,7 @@ itself `Gaia DR4_RC3` and contains 1008 FoV transits for 12 sources: 10080 CCD o
 8941 with a finite along-scan centroid, 7467 used by AGIS, spanning 2014-07-30 to 2020-01-15
 (5.461 yr).
 
-`docs/prerelease_reference.csv` holds the per-source reference values, with the release-page
+`src/gaia_dr4_explorer/resources/prerelease_reference.csv` holds the per-source reference values, with the release-page
 metadata, the quantities we measure from the VOTable, and the fit results kept in separate
 columns so the interface can always say which is which.
 
@@ -78,7 +94,7 @@ columns so the interface can always say which is which.
 Gaia DR4 epoch photometry is **not** in the June-2026 prerelease and is not public
 until 2026-12-02. The Photometry tab therefore draws on **Gaia DR3**, and says so on
 every panel. Of the 12 prerelease sources, DR3 published epoch photometry for three:
-Gaia-4 and the two variable QSOs. `docs/dr3_products.csv` records the availability
+Gaia-4 and the two variable QSOs. `src/gaia_dr4_explorer/resources/dr3_products.csv` records the availability
 flags for all twelve, queried on 2026-09-22, so the application can report
 availability without a network call.
 
