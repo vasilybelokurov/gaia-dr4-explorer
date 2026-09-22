@@ -81,8 +81,16 @@ FIELDS: dict[str, FieldSpec] = {
         _f("ra0", _T, "deg", "Right ascension of reference point"),
         _f("dec0", _T, "deg", "Declination of reference point"),
         _f("agis_source_excess_noise", _S, "mas", "Unscaled AGIS source excess noise"),
-        _f("obs_time_tcb", _C, "ns", "Effective observing time as TCB, from the time origin"),
-        _f("obs_time_bary_corr", _T, "ns", "Barycentric correction to obs_time_tcb"),
+        _f(
+            "obs_time_tcb", _C, "ns",
+            "Effective observing time as TCB **at Gaia**, from the time origin; "
+            "add obs_time_bary_corr for barycentric time",
+        ),
+        _f(
+            "obs_time_bary_corr", _T, "ns",
+            "Barycentric correction, in the sense TCB(barycentric) - TCB(at Gaia), "
+            "computed at the AF4 CCD",
+        ),
         _f("scan_pos_angle", _C, "deg", "Position angle of the scan"),
         _f("zeta", _T, "deg", "Across-scan field angle zeta of the reference point"),
         _f("parallax_factor_al", _T, None, "Parallax factor along scan"),

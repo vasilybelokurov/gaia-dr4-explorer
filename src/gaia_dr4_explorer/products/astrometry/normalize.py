@@ -322,6 +322,31 @@ def _build_ccd_table(
             unit="yr",
             description="Derived from obs_time_tcb; the original column is unchanged",
         )
+        if "obs_time_bary_corr" in out.colnames:
+            corr_col = out["obs_time_bary_corr"]
+            corr = np.asarray(_filled(corr_col, np.nan), dtype="float64")
+            bary_ns = times.barycentric_ns(ns, corr)
+            mask = ~np.isfinite(bary_ns)
+            jd = np.where(mask, np.nan, times.tcb_ns_to_jd(np.nan_to_num(bary_ns)))
+            rel = np.where(
+                mask, np.nan,
+                times.relative_time_year(ns, np.nan_to_num(corr)),
+            )
+            out["obs_time_jd_tcb_barycentric"] = MaskedColumn(
+                jd, mask=mask, unit="d",
+                description=(
+                    "obs_time_tcb + obs_time_bary_corr, i.e. TCB at the solar-system "
+                    "barycentre; the correction is computed at AF4, so it is exact at "
+                    "mid-transit and approximate for the other CCDs"
+                ),
+            )
+            out["relative_time_year"] = MaskedColumn(
+                rel, mask=mask, unit="yr",
+                description=(
+                    "Barycentric TCB years relative to the DR4 reference epoch "
+                    f"J{times.DR4_REFERENCE_EPOCH_JYEAR}"
+                ),
+            )
 
     if len(out) != total:
         raise NormalizationError(f"expected {total} CCD rows, built {len(out)}")

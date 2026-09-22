@@ -85,6 +85,13 @@ class NormalizedPhotometry:
             return out
         band = np.asarray(self.epochs["band"])
         rejected = np.asarray(np.ma.filled(self.epochs["rejected"], False), dtype=bool)
+        if "transit_rejected" in self.epochs.colnames:
+            rejected = rejected | np.asarray(
+                np.ma.filled(self.epochs["transit_rejected"], False), dtype=bool
+            )
+        unknown = np.asarray(
+            getattr(self.epochs["rejected"], "mask", np.zeros(len(self.epochs), dtype=bool))
+        )
         mag = np.asarray(np.ma.filled(self.epochs["mag"], np.nan), dtype="float64")
         time = np.asarray(np.ma.filled(self.epochs["time_jd_tcb"], np.nan), dtype="float64")
         for b in sorted(set(band.tolist())):
@@ -93,6 +100,7 @@ class NormalizedPhotometry:
                 continue
             out[f"n_{b}"] = int(m.sum())
             out[f"n_{b}_rejected"] = int((m & rejected).sum())
+            out[f"n_{b}_quality_unknown"] = int((m & unknown).sum())
             out[f"median_{b}_mag"] = float(np.nanmedian(mag[m]))
             out[f"ptp_{b}_mag"] = float(np.nanmax(mag[m]) - np.nanmin(mag[m]))
         finite_t = time[np.isfinite(time)]

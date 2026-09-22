@@ -32,6 +32,9 @@ def to_frame(epochs) -> pd.DataFrame:
         getattr(epochs["rejected"], "mask", np.zeros(len(epochs), dtype=bool))
     )
     rejected = frame["rejected"].astype(bool).to_numpy()
+    if "transit_rejected" in frame.columns:
+        # The transit-level flag rejects every band of that transit.
+        rejected = rejected | frame["transit_rejected"].astype(bool).to_numpy()
     frame["status"] = np.where(
         ~known, "quality unknown", np.where(rejected, "rejected", "accepted")
     )
@@ -59,8 +62,20 @@ def light_curve(frame: pd.DataFrame, *, bands: list[str] | None = None) -> hv.Ov
         sub = frame[frame["band"] == band]
         if sub.empty:
             continue
-        accepted = sub[sub["status"] != "rejected"]
+        accepted = sub[sub["status"] == "accepted"]
+        unknown = sub[sub["status"] == "quality unknown"]
         rejected = sub[sub["status"] == "rejected"]
+        if not unknown.empty:
+            # Neither accepted nor rejected: shown, and shown as different.
+            layers.append(
+                hv.Points(
+                    unknown, kdims=["time_yr", "mag"],
+                    vdims=_hover(unknown, ("mag",)), label=f"{band} quality unknown",
+                ).opts(
+                    color="#999999", marker="triangle", size=6, alpha=0.9,
+                    tools=["hover"],
+                )
+            )
         if not rejected.empty:
             # Rejected epochs stay visible, drawn hollow rather than hidden.
             layers.append(

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from gaia_dr4_explorer.products.astrometry.times import (
     TIME_ORIGIN_JD,
@@ -44,3 +45,36 @@ def test_jyear_is_monotonic():
     ns = np.array([0, _NS_PER_DAY * 365, _NS_PER_DAY * 730], dtype="int64")
     y = tcb_ns_to_jyear(ns)
     assert np.all(np.diff(y) > 0)
+
+
+def test_barycentric_correction_is_additive():
+    """From the draft DR4 data model: the correction is TCB(bary) - TCB(at Gaia)."""
+    from gaia_dr4_explorer.products.astrometry.times import barycentric_ns
+
+    at_gaia = np.array([248777679747269187], dtype="int64")
+    correction = np.array([4.2e8], dtype="float64")   # ns
+    assert barycentric_ns(at_gaia, correction)[0] == pytest.approx(
+        248777679747269187 + 4.2e8, rel=0, abs=1
+    )
+
+
+def test_missing_correction_propagates_as_nan_not_zero():
+    from gaia_dr4_explorer.products.astrometry.times import barycentric_ns
+
+    out = barycentric_ns(np.array([1_000_000], dtype="int64"), np.array([np.nan]))
+    assert np.isnan(out[0]), "a missing correction must not silently become zero"
+
+
+def test_relative_time_zero_is_the_dr4_reference_epoch():
+    from astropy.time import Time
+
+    from gaia_dr4_explorer.products.astrometry.times import (
+        DR4_REFERENCE_EPOCH_JYEAR,
+        TIME_ORIGIN_JD,
+        relative_time_year,
+    )
+
+    assert DR4_REFERENCE_EPOCH_JYEAR == 2017.5, "DR3 used J2016.0; DR4 uses J2017.5"
+    ref = Time(DR4_REFERENCE_EPOCH_JYEAR, format="jyear", scale="tcb")
+    ns = np.array([(ref.jd - TIME_ORIGIN_JD) * 86_400_000_000_000], dtype="float64")
+    assert relative_time_year(ns, np.zeros(1))[0] == pytest.approx(0.0, abs=1e-6)

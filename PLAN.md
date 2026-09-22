@@ -108,12 +108,25 @@ inputs promote and sign-extend correctly.
 `obs_time_bary_corr` is a separate **per-transit** scalar in ns.
 
 - Canonical store stays int64 ns. float64 JD loses ~µs.
-- `TIMESYS refposition="BARYCENTER"` alongside a separate barycentric-correction column is
-  contradictory on its face. **UNVERIFIED:** whether `obs_time_tcb` is already barycentric.
-  Resolve against the draft data model PDF before labelling any axis "barycentric".
-- `gaiasupdate.set_relative_time()` emits `relative_time_year` on a reference epoch this plan
-  has not pinned down (observed range −2.375 → +1.77 yr). **UNVERIFIED.** Do not label a plot
-  axis with it until resolved.
+- **RESOLVED 2026-09-22** from the draft DR4 data model
+  (`gaia-dr4-prerelease-draft-data-model_2026-06-26.zip`, sha256 `d807eae9…f42c66`):
+
+  > `obs_time_bary_corr` — "Barycentric correction to the observation time, **in the sense of
+  > TCB(barycentric) − TCB(at Gaia)**, calculated for the obsTime of the AF4 CCD, i.e. at the
+  > middle of the FoV transit."
+
+  So `obs_time_tcb` is **TCB at Gaia**, and `t_bary = obs_time_tcb + obs_time_bary_corr`.
+  The VOTable's `TIMESYS/@refposition="BARYCENTER"` contradicts the data model and must not
+  be believed. `gaiasupdate.set_relative_time()` agrees with the data model: it adds the
+  correction. Note the correction is computed at AF4, so it is exact at mid-transit and
+  approximate for the other CCDs of the same transit — say so wherever it is used.
+  `obs_time_bary_corr` appears in `epoch_astrometry` and in no other DR4 table, consistent
+  with DPAC's convention that epoch photometry is already barycentric while epoch astrometry
+  is at Gaia.
+- **RESOLVED 2026-09-22.** The DR4 reference epoch is **J2017.5** (DR3 used J2016.0);
+  verified in `gaiasupdate.constants`:
+  `DR4_REFERENCE_EPOCH = Time('2017.5', format='jyear', scale='tcb')`.
+  `relative_time_year` is barycentric TCB years relative to J2017.5, so zero is J2017.5.
 
 ---
 
@@ -554,11 +567,19 @@ RVS panel present, showing "unavailable for all prerelease sources" until DR4.
 3. **residual-to-mean** — each epoch ratioed to the mean. This is the view that shows
    variability; a raw overplot is dominated by the common continuum and hides it.
 
-**UNVERIFIED and load-bearing:** whether DR4 exposes the same `transit_id` across epoch
-astrometry and epoch spectra. If it does, selecting a transit in the focal-plane matrix can
-highlight that transit's spectrum, which is the one thing this app offers that the archive's
-own tools do not. Confirm against the draft data model before building the shared-selection
-machinery; until then keep per-tab selection. Commit.
+**RESOLVED 2026-09-22, with a caveat.** `transit_id` is defined identically in **25** DR4
+tables, including `epoch_astrometry`, `epoch_photometry`, `epoch_photometry_ccd` and
+`xp_epoch_spectrum`: "a unique identifier assigned to each detected (and confirmed) source as
+it transits the Gaia focal plane… the along-scan time and the across-scan position along with
+the telescope in which the source was detected are used to [construct it]". It is a physical
+focal-plane transit identifier, not a per-product row key, so `(source_id, transit_id)` is the
+join key for cross-product linked selection.
+
+The caveat: no sentence in the public documentation states verbatim that the values are
+guaranteed equal across products, and the data model is still marked draft. Build the linked
+selection against `(source_id, transit_id)`, but treat a non-matching transit as a normal
+absence — not every transit yields a usable row in every product. Re-check on 2026-12-02.
+Commit.
 
 ### Phase 11 — Context plugin (SIMBAD + ADS)
 SIMBAD via TAP, `ident` ⋈ `basic`, keyed on `Gaia DR3 <source_id>` with a 5″ positional
