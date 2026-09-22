@@ -26,14 +26,23 @@ def to_frame(epochs) -> pd.DataFrame:
         else:
             data[name] = np.asarray(col)
     frame = pd.DataFrame(data)
-    frame["status"] = np.where(frame["rejected"].astype(bool), "rejected", "accepted")
+    # Three states, not two: a masked per-band flag means the archive did not
+    # say, which is not the same as saying the epoch was accepted.
+    known = ~np.asarray(
+        getattr(epochs["rejected"], "mask", np.zeros(len(epochs), dtype=bool))
+    )
+    rejected = frame["rejected"].astype(bool).to_numpy()
+    frame["status"] = np.where(
+        ~known, "quality unknown", np.where(rejected, "rejected", "accepted")
+    )
     if "transit_id" in frame.columns:
         frame["transit_id_str"] = frame["transit_id"].astype("int64").astype(str)
     frame["time_yr"] = 2010.0 + (frame["time_jd_tcb"] - 2455197.5) / 365.25
     return frame
 
 
-_HOVER = ("transit_id_str", "band", "mag", "flux_over_error", "status", "time_jd_tcb")
+_HOVER = ("transit_id_str", "band", "mag", "flux_error", "flux_over_error",
+          "status", "transit_rejected", "other_flags", "time_jd_tcb")
 
 
 def _hover(frame: pd.DataFrame, exclude: tuple[str, ...] = ()) -> list[str]:
@@ -50,7 +59,7 @@ def light_curve(frame: pd.DataFrame, *, bands: list[str] | None = None) -> hv.Ov
         sub = frame[frame["band"] == band]
         if sub.empty:
             continue
-        accepted = sub[sub["status"] == "accepted"]
+        accepted = sub[sub["status"] != "rejected"]
         rejected = sub[sub["status"] == "rejected"]
         if not rejected.empty:
             # Rejected epochs stay visible, drawn hollow rather than hidden.

@@ -21,3 +21,10 @@ Per-source reference values, regenerated from `prerelease.zip` by this package's
 own code. Release-page metadata, VOTable-derived measurements and gaiasupdate
 fit results are kept in separate columns. Pinned to `gaiasupdate==0.1.2`; the
 `fit_*` columns are a regression snapshot and will move if that pin changes.
+
+## `dr3_epoch_photometry_gaia4.vot`
+
+Gaia DR3 `EPOCH_PHOTOMETRY` DataLink response for Gaia-4
+(`source_id = 1457486023639239296`), retrieved unmodified on 2026-09-22. Used to
+pin the band-column mapping to the columns the archive actually serves, without
+a network call.

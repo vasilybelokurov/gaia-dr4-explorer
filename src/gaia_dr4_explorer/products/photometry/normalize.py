@@ -17,7 +17,12 @@ from astropy.table import Column, MaskedColumn, Table, vstack
 from gaia_dr4_explorer import __version__
 from gaia_dr4_explorer.domain.provenance import ProvenanceRecord
 
-#: Bands, and the column prefixes DataLink uses for each.
+#: Bands and the columns DataLink serves for each.
+#:
+#: Verified against a real DR3 EPOCH_PHOTOMETRY response on 2026-09-22.  The
+#: per-band rejection flags are ``variability_flag_<band>_reject``; there is no
+#: ``bp_rejected_by_photometry`` or ``rp_rejected_by_photometry``.
+#: ``rejected_by_photometry`` is transit-level and is carried separately.
 BANDS: dict[str, dict[str, str]] = {
     "G": {
         "time": "g_transit_time",
@@ -25,7 +30,8 @@ BANDS: dict[str, dict[str, str]] = {
         "flux": "g_transit_flux",
         "flux_error": "g_transit_flux_error",
         "flux_over_error": "g_transit_flux_over_error",
-        "rejected": "rejected_by_photometry",
+        "rejected": "variability_flag_g_reject",
+        "other_flags": "g_other_flags",
     },
     "BP": {
         "time": "bp_obs_time",
@@ -33,17 +39,22 @@ BANDS: dict[str, dict[str, str]] = {
         "flux": "bp_flux",
         "flux_error": "bp_flux_error",
         "flux_over_error": "bp_flux_over_error",
-        "rejected": "bp_rejected_by_photometry",
+        "rejected": "variability_flag_bp_reject",
+        "other_flags": "bp_other_flags",
     },
     "RP": {
         "time": "rp_obs_time",
         "mag": "rp_mag",
         "flux": "rp_flux",
-        "flux_error": "rp_flux_over_error",
+        "flux_error": "rp_flux_error",
         "flux_over_error": "rp_flux_over_error",
-        "rejected": "rp_rejected_by_photometry",
+        "rejected": "variability_flag_rp_reject",
+        "other_flags": "rp_other_flags",
     },
 }
+
+#: Transit-level rejection flag, applying to the transit rather than one band.
+TRANSIT_REJECTED_COLUMN = "rejected_by_photometry"
 
 #: Gaia photometric time is barycentric JD offset by this, in days.
 JD_OFFSET = 2455197.5
@@ -131,7 +142,7 @@ def normalize_epoch_photometry(
             ),
         )
         block["mag"] = _carry(raw, cols["mag"], n, unit="mag")
-        for key in ("flux", "flux_error", "flux_over_error"):
+        for key in ("flux", "flux_error", "flux_over_error", "other_flags"):
             name = cols.get(key)
             block[key] = (
                 _carry(raw, name, n) if name and name in raw.colnames else _missing(n)
@@ -140,12 +151,28 @@ def normalize_epoch_photometry(
         if rej and rej in raw.colnames:
             block["rejected"] = Column(
                 np.asarray(np.ma.filled(raw[rej], False), dtype=bool),
-                description=f"From {rej}",
+                description=f"Per-band rejection flag, from {rej}",
             )
         else:
-            block["rejected"] = Column(np.zeros(n, dtype=bool),
-                                       description="Not served; assumed accepted")
-            warnings.append(f"{band}: no rejection flag served; all epochs shown as accepted")
+            # Never quietly present unknown-quality data as accepted.
+            block["rejected"] = MaskedColumn(
+                np.zeros(n, dtype=bool), mask=np.ones(n, dtype=bool),
+                description="No per-band rejection flag served; quality unknown",
+            )
+            warnings.append(
+                f"{band}: {rej!r} was not served, so per-band rejection is unknown "
+                "and is shown as such rather than as accepted"
+            )
+        if TRANSIT_REJECTED_COLUMN in raw.colnames:
+            block["transit_rejected"] = Column(
+                np.asarray(np.ma.filled(raw[TRANSIT_REJECTED_COLUMN], False), dtype=bool),
+                description=f"Transit-level flag, from {TRANSIT_REJECTED_COLUMN}",
+            )
+        else:
+            block["transit_rejected"] = MaskedColumn(
+                np.zeros(n, dtype=bool), mask=np.ones(n, dtype=bool),
+                description="Transit-level rejection flag not served",
+            )
         blocks.append(block)
 
     if not blocks:
