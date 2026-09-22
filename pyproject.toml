@@ -41,6 +41,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/ has no __init__.py, so "from tests.conftest import ..." needs the
+# repository root on sys.path. Without this it works only where something else
+# has already put it there, which is how it passed locally and failed in CI.
+pythonpath = ["."]
 markers = [
     "network: test requires internet access (deselected by default)",
     "integration: test uses the real prerelease dataset",
