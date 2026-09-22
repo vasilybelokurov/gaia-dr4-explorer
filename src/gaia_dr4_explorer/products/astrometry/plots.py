@@ -336,3 +336,91 @@ def _empty(message: str) -> hv.Text:
     return hv.Text(0.5, 0.5, message).opts(
         xaxis=None, yaxis=None, responsive=True, height=200, color="#888888"
     )
+
+
+# --------------------------------------------------------------- sky plane
+
+
+def sky_track(
+    track_t, track_dra, track_ddec, epochs=None, *, show_constraints: bool = True,
+    subtract_proper_motion: bool = False, title: str = "Reconstructed sky track",
+) -> hv.Overlay:
+    """The model path on the sky, with each 1-D measurement shown as such.
+
+    Parameters
+    ----------
+    track_t, track_dra, track_ddec : ndarray
+        Densely sampled model track, years from the reference epoch and mas.
+    epochs : DataFrame, optional
+        Per-epoch frame with ``dra``, ``ddec``, ``x0, y0, x1, y1`` constraint
+        endpoints, ``obs_time_jyear_tcb`` and the usual hover columns.
+    show_constraints : bool
+        Draw the perpendicular line each measurement actually constrains.
+    subtract_proper_motion : bool
+        Show the parallax alone, with the linear motion removed.
+
+    Notes
+    -----
+    Gaia measures one coordinate per observation. The perpendicular position of
+    every plotted point comes from the model, not from data; the short lines
+    are the locus the measurement really constrains.
+    """
+    layers = [
+        hv.Curve(
+            (track_dra, track_ddec), kdims=["dra"], vdims=["ddec"], label="model track",
+        ).opts(color="#444444", line_width=1.4, alpha=0.9)
+    ]
+    if epochs is not None and len(epochs):
+        if show_constraints and {"x0", "y0", "x1", "y1"} <= set(epochs.columns):
+            segs = [
+                np.column_stack([[r.x0, r.x1], [r.y0, r.y1]])
+                for r in epochs.itertuples()
+            ]
+            layers.append(
+                hv.Path(segs).opts(color="#bbbbbb", line_width=1, alpha=0.7)
+            )
+        layers.append(
+            hv.Points(
+                epochs, kdims=["dra", "ddec"],
+                vdims=[c for c in _hover(epochs) if c in epochs.columns]
+                + (["obs_time_jyear_tcb"] if "obs_time_jyear_tcb" in epochs else []),
+                label="measurement",
+            ).opts(
+                color="obs_time_jyear_tcb" if "obs_time_jyear_tcb" in epochs else _USED_COLOUR,
+                cmap="viridis", colorbar=True, size=5, alpha=0.9,
+                tools=["hover"], clabel="observation time [yr, TCB]",
+            )
+        )
+    label = (
+        "parallax only, proper motion removed" if subtract_proper_motion
+        else "parallax and proper motion"
+    )
+    return hv.Overlay(layers).opts(
+        responsive=True, height=520, legend_position="top_left",
+        xlabel="Δα* [mas]  (offset from the transit reference point)",
+        ylabel="Δδ [mas]",
+        title=f"{title} — {label}",
+        invert_xaxis=True,   # RA increases to the left, as on the sky
+    )
+
+
+def sky_offsets_vs_time(epochs) -> hv.Layout:
+    """The two tangent-plane components against time, model and measurement."""
+    panels = []
+    for col, label in (("dra", "Δα* [mas]"), ("ddec", "Δδ [mas]")):
+        if col not in epochs:
+            continue
+        panels.append(
+            hv.Points(
+                epochs, kdims=["obs_time_jyear_tcb", col],
+                vdims=[c for c in _hover(epochs) if c in epochs.columns],
+            ).opts(
+                responsive=True, height=260, color=_USED_COLOUR, size=4,
+                alpha=0.85, tools=["hover"],
+                xlabel="Observation time [yr, TCB]", ylabel=label,
+                title=f"{label} against time",
+            )
+        )
+    if not panels:
+        return _empty("No sky-plane positions to show")
+    return hv.Layout(panels).cols(1)

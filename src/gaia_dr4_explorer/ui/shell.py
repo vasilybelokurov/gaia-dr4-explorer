@@ -95,6 +95,7 @@ def build_app(
             tabs.append(("Source fit", FitView(state, view).panel()))
         else:
             tabs.append(("Source fit", _static_fit_notice(context)))
+        tabs.append(("Sky plane", _sky_tab(state, payload, context, allow_fit=allow_fit)))
         tabs.append(("Photometry", _product_tab(state, photometry, context)))
         tabs.append(("Spectra", _product_tab(state, spectra, context)))
         tabs.append(("Context", _product_tab(state, context_plugin, context)))
@@ -195,6 +196,51 @@ _UNAVAILABLE_PANELS = {
     "xp_spectrum": "gaia_dr4_explorer.ui.spectra",
     "context": "gaia_dr4_explorer.ui.context",
 }
+
+
+def _sky_tab(state, payload, context, *, allow_fit: bool) -> pn.Column:
+    """The reconstructed sky track, which needs the fitted parameters.
+
+    Computed on demand: it requires a source update, which takes a second or
+    two, and nothing should run before the user asks for it.
+    """
+    from gaia_dr4_explorer.ui.skyplane import SkyPlaneView, needs_fit_panel
+
+    if not allow_fit:
+        return needs_fit_panel(
+            "This build cannot run <code>gaiasupdate</code>, and the sky track is "
+            "drawn from a fitted model rather than from measured coordinates."
+        )
+
+    button = pn.widgets.Button(
+        name="Fit and draw the sky track", button_type="primary", width=280
+    )
+    out = pn.Column(
+        pn.pane.HTML(
+            "<div style='font-size:12px;color:#555;max-width:720px'>"
+            "Gaia epoch astrometry is one-dimensional, so a position on the sky "
+            "is a model, not a measurement. Running the DR4-like source update "
+            "gives the model to draw.</div>"
+        ),
+        sizing_mode="stretch_width",
+    )
+
+    def draw(_event) -> None:
+        button.loading = True
+        try:
+            result = state.fit()
+            view = SkyPlaneView(context=context, payload=payload, result=result)
+        except Exception as exc:
+            out.objects = [
+                pn.pane.HTML(f"<div style='color:#c0392b'>Could not draw: {exc}</div>")
+            ]
+            return
+        finally:
+            button.loading = False
+        out.objects = [pn.Row(view.controls(), view.panel(), sizing_mode="stretch_width")]
+
+    button.on_click(draw)
+    return pn.Column(button, out, sizing_mode="stretch_width")
 
 
 def _product_tab(state, plugin, context) -> pn.Column:

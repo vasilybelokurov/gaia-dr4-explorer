@@ -76,15 +76,22 @@ def catalog() -> dict[int, CatalogEntry]:
     return out
 
 
+#: Geometry the sky-plane model needs alongside the fitted parameters. These do
+#: not start with "fit_" because they are measured from the data, not fitted,
+#: but a build that cannot run gaiasupdate needs them just the same.
+MODEL_GEOMETRY_COLUMNS = ("ra0_deg", "dec0_deg", "t_rel_min_yr", "t_rel_max_yr")
+
+
 @lru_cache(maxsize=1)
 def reference_fits() -> dict[int, dict[str, float]]:
-    """Precomputed fit results, for builds that cannot run ``gaiasupdate``."""
+    """Precomputed fit results and model geometry, for builds without gaiasupdate."""
     out: dict[int, dict[str, float]] = {}
     for row in _rows():
         out[int(row["source_id"])] = {
             k: float(v)
             for k, v in row.items()
-            if k.startswith("fit_") and v not in ("", None)
+            if (k.startswith("fit_") or k in MODEL_GEOMETRY_COLUMNS)
+            and v not in ("", None)
         }
     return out
 

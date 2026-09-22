@@ -35,3 +35,30 @@ def test_resource_globs_cover_every_resource():
     }
     missing = on_disk - covered
     assert not missing, f"resource types not covered by package-data: {sorted(missing)}"
+
+
+def test_reference_table_carries_everything_the_sky_model_needs():
+    """A browser build cannot fit, so the model must be fully described here."""
+    from gaia_dr4_explorer.data.catalog import reference_fits
+
+    required = {
+        "fit_delta_alpha_star_mas", "fit_delta_delta_mas", "fit_parallax_mas",
+        "fit_pmra_mas_yr", "fit_pmdec_mas_yr",
+        "ra0_deg", "dec0_deg", "t_rel_min_yr", "t_rel_max_yr",
+    }
+    fits = reference_fits()
+    assert len(fits) == 12
+    for sid, values in fits.items():
+        missing = required - set(values)
+        assert not missing, f"{sid} is missing {sorted(missing)} from the reference table"
+
+
+def test_reference_geometry_is_physically_plausible():
+    from gaia_dr4_explorer.data.catalog import reference_fits
+
+    for sid, v in reference_fits().items():
+        assert 0.0 <= v["ra0_deg"] <= 360.0, sid
+        assert -90.0 <= v["dec0_deg"] <= 90.0, sid
+        # The DR4 baseline is 2014-07 to 2020-01 about J2017.5.
+        assert -3.0 < v["t_rel_min_yr"] < 0.0, sid
+        assert 0.0 < v["t_rel_max_yr"] < 3.0, sid

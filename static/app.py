@@ -32,6 +32,7 @@ from gaia_dr4_explorer.ui import spectra as spectra_ui
 from gaia_dr4_explorer.ui.astrometry import AstrometryView
 from gaia_dr4_explorer.ui.components import caveat, release_badge
 from gaia_dr4_explorer.ui.overview import overview_panel
+from gaia_dr4_explorer.ui.skyplane import ONE_DIMENSIONAL_NOTE
 
 pn.extension("tabulator", sizing_mode="stretch_width")
 
@@ -105,6 +106,68 @@ def fit_panel(source_id):
     )
 
 
+def sky_panel(source_id):
+    """The model track, drawn from the precomputed fit this build ships.
+
+    The track is a model either way -- Gaia measures one coordinate per
+    observation -- so a precomputed model draws exactly the same curve a live
+    fit would. Only the per-epoch residuals are unavailable here.
+    """
+    from gaia_dr4_explorer.products.astrometry import plots as astro_plots
+    from gaia_dr4_explorer.products.astrometry import skyplane
+
+    values = FITS.get(int(source_id), {})
+    required = ("fit_delta_alpha_star_mas", "fit_delta_delta_mas", "fit_parallax_mas",
+                "fit_pmra_mas_yr", "fit_pmdec_mas_yr", "ra0_deg", "dec0_deg",
+                "t_rel_min_yr", "t_rel_max_yr")
+    if any(k not in values for k in required):
+        return pn.pane.HTML(
+            "<div style='font-size:12px;color:#666'>No precomputed model for this "
+            "source.</div>"
+        )
+    model = skyplane.SkyModel(
+        delta_alpha_star=values["fit_delta_alpha_star_mas"],
+        delta_delta=values["fit_delta_delta_mas"],
+        parallax=values["fit_parallax_mas"],
+        pmra_star=values["fit_pmra_mas_yr"],
+        pmdec=values["fit_pmdec_mas_yr"],
+    )
+    panels = []
+    for subtract in (False, True):
+        m = model if not subtract else skyplane.SkyModel(
+            model.delta_alpha_star, model.delta_delta, model.parallax, 0.0, 0.0
+        )
+        t, dra, ddec = skyplane.smooth_track(
+            m, values["t_rel_min_yr"], values["t_rel_max_yr"],
+            values["ra0_deg"], values["dec0_deg"],
+        )
+        panels.append(
+            pn.pane.HoloViews(
+                astro_plots.sky_track(
+                    t, dra, ddec, None, subtract_proper_motion=subtract
+                ),
+                sizing_mode="stretch_width",
+            )
+        )
+    return pn.Column(
+        caveat(ONE_DIMENSIONAL_NOTE),
+        pn.pane.HTML(
+            f"<div style='font-size:12px;color:#444;margin-top:6px'>Model: "
+            f"ϖ = {model.parallax:.4f} mas &middot; μα* = {model.pmra_star:.3f} mas/yr "
+            f"&middot; μδ = {model.pmdec:.3f} mas/yr<br>"
+            "<span style='color:#777;font-size:11px'>Precomputed with gaiasupdate "
+            "0.1.2 and shipped with this page; per-epoch residuals need a live "
+            "fit, so only the model track is drawn here.</span></div>"
+        ),
+        pn.Tabs(
+            ("Parallax and proper motion", panels[0]),
+            ("Parallax only", panels[1]),
+            dynamic=True, sizing_mode="stretch_width",
+        ),
+        sizing_mode="stretch_width",
+    )
+
+
 def build(source_id):
     entry = ENTRIES.get(int(source_id))
     context = SourceContext(
@@ -129,6 +192,7 @@ def build(source_id):
         ("Overview", overview_panel(context, payload, RELEASE)),
         ("Astrometry", pn.Row(view.controls(), view.panel())),
         ("Source fit", fit_panel(source_id)),
+        ("Sky plane", sky_panel(source_id)),
     ]
     for plugin, title, module in PRODUCT_TABS:
         descriptor = plugin.discover(context)
