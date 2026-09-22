@@ -5,6 +5,7 @@ from __future__ import annotations
 import panel as pn
 
 from gaia_dr4_explorer.data.catalog import entry
+from gaia_dr4_explorer.products.astrometry import plots
 from gaia_dr4_explorer.ui.components import notes_panel, stat_table
 
 
@@ -53,6 +54,30 @@ def overview_panel(context, payload, release: str) -> pn.Column:
             "binaries: 6.58, 1.23 and 0.12 mas for the three orbit sources, and 0.00 for "
             "every parallax and magnitude example.</div>"
         ),
+        _epoch_preview(payload),
         notes_panel(list(warnings)),
+        sizing_mode="stretch_width",
+    )
+
+
+def _epoch_preview(payload) -> pn.Column:
+    """A look at the actual measurements.
+
+    Without this the landing page of an epoch-astrometry explorer contains no
+    epoch astrometry, only counts of it.
+    """
+    frame = plots.to_frame(payload.table("ccd"))
+    plot = plots.centroid_vs_time(frame).opts(
+        width=900, height=300, title="Along-scan centroid, every CCD observation"
+    )
+    return pn.Column(
+        pn.pane.HTML(
+            "<h3 style='margin:14px 0 2px 0'>Epoch data</h3>"
+            "<div style='font-size:11px;color:#777;margin-bottom:6px'>"
+            "Every CCD measurement, AGIS-used in blue and rejected in red. "
+            "The <b>Astrometry</b> tab has the filters, the focal-plane matrix "
+            "and the flag table.</div>"
+        ),
+        pn.pane.HoloViews(plot, sizing_mode="fixed"),
         sizing_mode="stretch_width",
     )

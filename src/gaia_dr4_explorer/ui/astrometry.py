@@ -130,10 +130,11 @@ class AstrometryView(param.Parameterized):
             items.append(
                 pn.pane.HTML(
                     '<div style="font-size:11px;color:#777;border-top:1px solid #eee;'
-                    'padding-top:6px;">' + "<br>".join(disabled_notes) + "</div>"
+                    'padding-top:6px;width:280px;word-wrap:break-word;">'
+                    + "<br>".join(disabled_notes) + "</div>"
                 )
             )
-        return pn.Column(*items, width=260)
+        return pn.Column(*items, width=300, sizing_mode="fixed", margin=(0, 18, 0, 0))
 
     def panel(self) -> pn.Column:
         matrix_select = pn.widgets.Select(
@@ -143,11 +144,12 @@ class AstrometryView(param.Parameterized):
         matrix_select.link(self, value="matrix_quantity")
         return pn.Column(
             pn.Tabs(
-                ("Coverage", pn.Column(self.coverage)),
+                # The along-scan centroid is the measurement; it leads.
                 ("Centroid AL", pn.Column(self.centroid)),
+                ("Focal-plane matrix", pn.Column(matrix_select, self.matrix)),
+                ("Coverage", pn.Column(self.coverage)),
                 ("Scan geometry", pn.Column(self.geometry)),
                 ("Uncertainties", pn.Column(self.uncertainties)),
-                ("Focal-plane matrix", pn.Column(matrix_select, self.matrix)),
                 ("Flags", pn.Column(self.flag_table)),
                 dynamic=True,
             ),

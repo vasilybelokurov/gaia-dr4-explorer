@@ -14,6 +14,22 @@ from gaia_dr4_explorer.ui.state import AppState
 
 TITLE = "Gaia DR4 Object Explorer"
 
+#: Opening source.  A named object with a real astrometric signal beats the
+#: numerically smallest identifier, which is an anonymous G=19.8 QSO.
+PREFERRED_FIRST_SOURCES = (
+    4318465066420528000,   # Gaia BH3
+    4181040337841125632,   # HD 183633
+    3937211745905473024,   # HD 114762
+)
+
+
+def default_source_id(source_ids: list[int]) -> int:
+    """Pick the source to open on."""
+    for sid in PREFERRED_FIRST_SOURCES:
+        if sid in source_ids:
+            return sid
+    return source_ids[0]
+
 
 def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTemplate:
     """Assemble the application.  Loads nothing until a source is selected."""
@@ -24,7 +40,9 @@ def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTempla
     astrometry.bind(provider)
 
     source_ids = provider.source_ids()
-    state = AppState(provider=provider, source_id=source_ids[0], release=provider.release())
+    state = AppState(
+        provider=provider, source_id=default_source_id(source_ids), release=provider.release()
+    )
 
     entries = catalog()
     options = {
@@ -56,14 +74,25 @@ def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTempla
         view = astrometry.build_view(context, payload)
         tabs = [
             ("Overview", overview_panel(context, payload, state.release)),
-            ("Astrometry", pn.Row(view.controls(), view.panel(), sizing_mode="stretch_width")),
+            (
+                "Astrometry",
+                pn.Row(
+                    view.controls(), pn.Spacer(width=10), view.panel(),
+                    sizing_mode="stretch_width",
+                ),
+            ),
         ]
         if allow_fit:
             tabs.append(("Source fit", FitView(state, view).panel()))
         else:
             tabs.append(("Source fit", _static_fit_notice(context)))
         tabs.append(("Raw / metadata", raw_panel(context, payload, astrometry)))
-        body.objects = [pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width")]
+        # Open on the epoch data itself.  The overview is a summary; landing
+        # there means the first thing a user sees of an epoch-astrometry
+        # explorer contains no epoch astrometry.
+        body.objects = [
+            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=1)
+        ]
 
     def on_select(event) -> None:
         sid = int(event.new)

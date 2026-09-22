@@ -49,7 +49,7 @@ def test_view_builds_every_plot(loaded):
 def test_axis_labels_always_carry_units():
     assert plots.axis_label("centroid_pos_al") == "centroid_pos_al [mas]"
     assert plots.axis_label("scan_pos_angle") == "scan_pos_angle [deg]"
-    assert plots.axis_label("parallax_factor_al") == "parallax_factor_al"
+    assert plots.axis_label("parallax_factor_al") == "parallax_factor_al [dimensionless]"
 
 
 def test_filters_narrow_the_selection(loaded):
@@ -143,3 +143,60 @@ def test_every_matrix_quantity_renders(loaded, quantity):
     buf = io.StringIO()
     pn.Column(pn.pane.HoloViews(heat)).save(buf)
     assert len(buf.getvalue()) > 1000
+
+
+def test_overview_shows_the_measurements_not_only_counts(loaded):
+    """An epoch-astrometry explorer must not land on a page with no epoch data."""
+    import io
+
+    import panel as pn
+
+    from gaia_dr4_explorer.ui.overview import overview_panel
+
+    state, _, payload = loaded
+    buf = io.StringIO()
+    pn.Column(overview_panel(state.context(), payload, "Gaia DR4_RC3")).save(buf)
+    html = buf.getvalue()
+    assert "Epoch data" in html
+    assert "Bokeh" in html, "the overview must embed a real plot, not just a table"
+
+
+def test_default_source_is_a_named_object():
+    from gaia_dr4_explorer.ui.shell import default_source_id
+
+    ids = [
+        2237987199365376, 2309425390592896, 4318465066420528000,
+        4181040337841125632,
+    ]
+    assert default_source_id(ids) == 4318465066420528000    # Gaia BH3
+    assert default_source_id([2237987199365376]) == 2237987199365376  # fallback
+
+
+def test_used_observations_are_drawn_over_rejected_ones(loaded):
+    """Rejected points drawn last would hide a mostly-used source entirely."""
+    state, _, payload = loaded
+    view = AstrometryView(context=state.context(), payload=payload)
+    overlay = plots.centroid_vs_time(view.filtered())
+    labels = [el.label for el in overlay if isinstance(el, hv.Points)]
+    assert labels == ["rejected", "used by AGIS"], (
+        f"AGIS-used points must be the last Points layer, got {labels}"
+    )
+
+
+def test_no_plot_shows_a_bare_column_name_on_an_axis(loaded):
+    """Every axis must identify its quantity and unit, not the raw column name."""
+    import holoviews.plotting.bokeh  # noqa: F401
+
+    state, _, payload = loaded
+    view = AstrometryView(context=state.context(), payload=payload)
+    frame = view.filtered()
+    for builder in (plots.centroid_vs_time, plots.parallax_factor_vs_time,
+                    plots.coverage_timeline, plots.scan_angle_vs_time):
+        fig = hv.render(builder(frame))
+        for axis, which in ((fig.xaxis[0], "x"), (fig.yaxis[0], "y")):
+            label = axis.axis_label or ""
+            assert label, f"{builder.__name__} {which}-axis has no label"
+            # Either a stated unit in brackets, or a plain-English phrase.
+            assert "[" in label or " " in label, (
+                f"{builder.__name__} {which}-axis is a bare column name: {label!r}"
+            )

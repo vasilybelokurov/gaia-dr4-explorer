@@ -34,12 +34,18 @@ _REJECTED_COLOUR = "#d62728"
 
 
 def axis_label(field: str, fallback: str | None = None) -> str:
-    """``"centroid_pos_al [mas]"`` -- never a bare number."""
+    """Axis label naming the Gaia field and its unit.
+
+    ``centroid_pos_al`` becomes ``"centroid_pos_al [mas]"``.  The field name is
+    kept deliberately, so every axis can be traced back to a published column.
+    A dimensionless quantity says so rather than leaving the reader to guess
+    whether the unit was simply forgotten.
+    """
     spec = FIELDS.get(field)
     if spec is None:
         return fallback or field
     unit = spec.canonical_unit
-    return f"{field} [{unit}]" if unit else field
+    return f"{field} [{unit}]" if unit else f"{field} [dimensionless]"
 
 
 def to_frame(ccd) -> pd.DataFrame:
@@ -90,37 +96,54 @@ def coverage_timeline(frame: pd.DataFrame, *, colour_by: str = "ccd_name") -> hv
         color=colour_by, cmap="Category10", size=4, alpha=0.8, tools=["hover", "box_select"],
         width=820, height=360, legend_position="right",
         title="Focal-plane coverage: every CCD observation",
+        xlabel="Observation time [yr, TCB]", ylabel="Transit (ordered by time)",
     )
 
 
 def centroid_vs_time(frame: pd.DataFrame, *, show_errors: bool = True) -> hv.Overlay:
     """Along-scan centroid against time, split by AGIS use."""
     layers = []
-    for status, colour in (("used by AGIS", _USED_COLOUR), ("rejected", _REJECTED_COLOUR)):
+    # Rejected observations are drawn first so the AGIS-used majority lands on
+    # top.  The 10 CCDs of one transit sit almost on top of each other, so
+    # whichever series is drawn last hides the other: with the order reversed a
+    # source that is 72% used renders as if it were entirely rejected.
+    for status, colour, marker in (
+        ("rejected", _REJECTED_COLOUR, "x"),
+        ("used by AGIS", _USED_COLOUR, "o"),
+    ):
         sub = frame[frame["status"] == status]
         if sub.empty:
             continue
-        pts = hv.Points(
-            sub,
-            kdims=[
-                hv.Dimension("obs_time_jyear_tcb", label="Observation time [yr, TCB]"),
-                hv.Dimension("centroid_pos_al", label=axis_label("centroid_pos_al")),
-            ],
-            vdims=_hover(sub, exclude=("obs_time_jyear_tcb", "centroid_pos_al")),
-            label=status,
-        ).opts(color=colour, size=5, alpha=0.85, tools=["hover", "box_select"])
-        layers.append(pts)
         if show_errors and "centroid_pos_error_al" in sub.columns:
-            bars = hv.ErrorBars(
-                sub, kdims=["obs_time_jyear_tcb"],
-                vdims=["centroid_pos_al", "centroid_pos_error_al"], label=status,
-            ).opts(color=colour, alpha=0.35, line_width=1)
-            layers.append(bars)
+            layers.append(
+                hv.ErrorBars(
+                    sub, kdims=["obs_time_jyear_tcb"],
+                    vdims=["centroid_pos_al", "centroid_pos_error_al"], label=status,
+                ).opts(color=colour, alpha=0.3, line_width=1)
+            )
+        layers.append(
+            hv.Points(
+                sub,
+                kdims=[
+                    hv.Dimension("obs_time_jyear_tcb", label="Observation time [yr, TCB]"),
+                    hv.Dimension("centroid_pos_al", label=axis_label("centroid_pos_al")),
+                ],
+                vdims=_hover(sub, exclude=("obs_time_jyear_tcb", "centroid_pos_al")),
+                label=status,
+            ).opts(
+                color=colour, size=5, alpha=0.85, marker=marker,
+                tools=["hover", "box_select"],
+            )
+        )
     if not layers:
         return _empty("No observations match the current filter")
     return hv.Overlay(layers).opts(
         width=820, height=360, legend_position="top_right",
         title="Along-scan centroid",
+        # An Overlay inherits axis labels from its first element, which here is
+        # an ErrorBars layer carrying bare column names.  State them.
+        xlabel="Observation time [yr, TCB]",
+        ylabel=axis_label("centroid_pos_al"),
     )
 
 
@@ -167,6 +190,8 @@ def parallax_factor_vs_time(frame: pd.DataFrame) -> hv.Overlay:
     return hv.Overlay(layers).opts(
         width=820, height=300, legend_position="top_right",
         title="Parallax factor AL (transit-level; missing transits marked, not imputed)",
+        xlabel="Observation time [yr, TCB]",
+        ylabel=axis_label("parallax_factor_al"),
     )
 
 
