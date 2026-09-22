@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gaia-dr4-explorer"
+version = "0.1.0.dev0"
+description = "Interactive explorer for Gaia DR4 epoch astrometry, one source at a time"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Vasily Belokurov" }]
+dependencies = [
+    # gaiasupdate 0.1.2 declares astropy<8.0; honour it explicitly.
+    "astropy>=6.0,<8.0",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "pyarrow>=14",
+    "platformdirs>=4.0",
+    # gaiasupdate imports astroquery.gaia at module scope, so it is a base
+    # dependency, not a later-phase one.
+    "astroquery>=0.4.7",
+    "gaiasupdate==0.1.2",
+]
+
+[project.optional-dependencies]
+ui = ["panel>=1.4", "param>=2.0", "holoviews>=1.18", "hvplot>=0.9", "bokeh>=3.3"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff>=0.4"]
+
+[project.scripts]
+gaia-dr4-explorer = "gaia_dr4_explorer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "network: test requires internet access (deselected by default)",
+    "integration: test uses the real prerelease dataset",
+]
+addopts = "-m 'not network' --strict-markers"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY"]
+ignore = ["E501"]
