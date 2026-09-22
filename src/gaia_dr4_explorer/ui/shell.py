@@ -6,7 +6,12 @@ import panel as pn
 
 from gaia_dr4_explorer.data.catalog import catalog
 from gaia_dr4_explorer.products import registry
-from gaia_dr4_explorer.ui.components import release_badge
+from gaia_dr4_explorer.ui.components import (
+    MAIN_TAB,
+    main_view_button,
+    release_badge,
+    show_main_view,
+)
 from gaia_dr4_explorer.ui.fit import FitView
 from gaia_dr4_explorer.ui.overview import overview_panel
 from gaia_dr4_explorer.ui.raw_table import raw_panel
@@ -63,6 +68,7 @@ def build_app(
     copy_button = pn.widgets.Button(name="Copy source_id", button_type="default", width=140)
     status = pn.pane.HTML("")
     header_label = pn.pane.HTML("")
+    main_button = main_view_button()
     body = pn.Column(sizing_mode="stretch_width")
 
     def render() -> None:
@@ -104,7 +110,7 @@ def build_app(
         # there means the first thing a user sees of an epoch-astrometry
         # explorer contains no epoch astrometry.
         body.objects = [
-            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=1)
+            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=MAIN_TAB)
         ]
 
     def on_select(event) -> None:
@@ -160,6 +166,7 @@ def build_app(
     selector.param.watch(on_select, "value")
     id_input.param.watch(on_id_input, "value")
     state.param.watch(on_state_source_id, "source_id")
+    main_button.on_click(lambda _event: show_main_view(body))
     reload_button.on_click(on_reload)
     copy_button.on_click(on_copy)
 
@@ -174,7 +181,7 @@ def build_app(
 
     template = pn.template.FastListTemplate(
         title=TITLE,
-        header=[header_label, release_badge(state.release)],
+        header=[header_label, main_button, release_badge(state.release)],
         sidebar=[
             pn.pane.HTML("<b>Data source</b><br><span style='font-size:12px;color:#555'>"
                          "Gaia DR4 prerelease (June 2026)</span>"),
@@ -199,48 +206,46 @@ _UNAVAILABLE_PANELS = {
 
 
 def _sky_tab(state, payload, context, *, allow_fit: bool) -> pn.Column:
-    """The reconstructed sky track, which needs the fitted parameters.
+    """Epoch astrometry on the sky, with the fitted model drawn on request.
 
-    Computed on demand: it requires a source update, which takes a second or
-    two, and nothing should run before the user asks for it.
+    The data need no fit: every observation is placed from its published
+    local-plane coordinates. Only the model overlay needs the source update,
+    which takes a second or two, so it runs when the user asks for it.
     """
-    from gaia_dr4_explorer.ui.skyplane import SkyPlaneView, needs_fit_panel
+    from gaia_dr4_explorer.products.astrometry import skyplane
+    from gaia_dr4_explorer.ui.skyplane import SkyPlaneView
+
+    out = pn.Column(sizing_mode="stretch_width")
+
+    def show(model=None, note: str = "", extra=None) -> None:
+        view = SkyPlaneView(
+            context=context, payload=payload, model=model,
+            model_label="DR4-like refit (gaiasupdate)", model_note=note,
+        )
+        out.objects = [view.layout(extra=extra)]
 
     if not allow_fit:
-        return needs_fit_panel(
-            "This build cannot run <code>gaiasupdate</code>, and the sky track is "
-            "drawn from a fitted model rather than from measured coordinates."
-        )
+        show()
+        return out
 
     button = pn.widgets.Button(
-        name="Fit and draw the sky track", button_type="primary", width=280
-    )
-    out = pn.Column(
-        pn.pane.HTML(
-            "<div style='font-size:12px;color:#555;max-width:720px'>"
-            "Gaia epoch astrometry is one-dimensional, so a position on the sky "
-            "is a model, not a measurement. Running the DR4-like source update "
-            "gives the model to draw.</div>"
-        ),
-        sizing_mode="stretch_width",
+        name="Fit and overplot the model", button_type="primary", width=260
     )
 
     def draw(_event) -> None:
         button.loading = True
         try:
             result = state.fit()
-            view = SkyPlaneView(context=context, payload=payload, result=result)
+            show(skyplane.SkyModel.from_fit(result), result.caveat)
         except Exception as exc:
-            out.objects = [
-                pn.pane.HTML(f"<div style='color:#c0392b'>Could not draw: {exc}</div>")
-            ]
-            return
+            show(extra=pn.pane.HTML(
+                f"<div style='color:#c0392b'>Could not fit the model: {exc}</div>"))
         finally:
             button.loading = False
-        out.objects = [pn.Row(view.controls(), view.panel(), sizing_mode="stretch_width")]
 
     button.on_click(draw)
-    return pn.Column(button, out, sizing_mode="stretch_width")
+    show(extra=button)
+    return out
 
 
 def _product_tab(state, plugin, context) -> pn.Column:

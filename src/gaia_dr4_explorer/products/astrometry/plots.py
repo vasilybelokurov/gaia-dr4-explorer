@@ -13,6 +13,7 @@ import pandas as pd
 
 from gaia_dr4_explorer.products.astrometry.normalize import CCD_NAMES
 from gaia_dr4_explorer.products.astrometry.schema import FIELDS
+from gaia_dr4_explorer.products.astrometry.times import DR4_REFERENCE_EPOCH_JYEAR
 
 #: Plots are sized by their container, never by a fixed pixel width: a hard
 #: width clips the right-hand end of the axis in a narrower browser window.
@@ -340,87 +341,131 @@ def _empty(message: str) -> hv.Text:
 
 # --------------------------------------------------------------- sky plane
 
+#: Hover columns for the sky view: the published inputs of each point.
+SKY_HOVER = HOVER_COLUMNS + ("calculated_pos_ac", "dra", "ddec")
 
-def sky_track(
-    track_t, track_dra, track_ddec, epochs=None, *, show_constraints: bool = True,
-    subtract_proper_motion: bool = False, title: str = "Reconstructed sky track",
+
+def _segments(frame, cols) -> list:
+    a, b, c, d = (frame[k].to_numpy(dtype="float64") for k in cols)
+    ok = np.isfinite(a) & np.isfinite(b) & np.isfinite(c) & np.isfinite(d)
+    return [np.array([[a[i], b[i]], [c[i], d[i]]]) for i in np.flatnonzero(ok)]
+
+
+def _padded_range(values, pad: float = 0.06):
+    v = np.asarray(values, dtype="float64")
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return None
+    lo, hi = float(v.min()), float(v.max())
+    half = max(0.5 * (hi - lo), 0.05)
+    mid = 0.5 * (hi + lo)
+    return mid - half * (1 + pad), mid + half * (1 + pad)
+
+
+def sky_epochs(
+    epochs, track=None, *, show_rejected: bool = True, show_constraints: bool = True,
+    show_errors: bool = True, proper_motion_removed: bool = False,
+    model_label: str = "model",
 ) -> hv.Overlay:
-    """The model path on the sky, with each 1-D measurement shown as such.
+    """Gaia epoch astrometry on the sky, with an optional model drawn over it.
 
     Parameters
     ----------
-    track_t, track_dra, track_ddec : ndarray
-        Densely sampled model track, years from the reference epoch and mas.
-    epochs : DataFrame, optional
-        Per-epoch frame with ``dra``, ``ddec``, ``x0, y0, x1, y1`` constraint
-        endpoints, ``obs_time_jyear_tcb`` and the usual hover columns.
+    epochs : DataFrame
+        Output of :func:`skyplane.epoch_sky_positions`, with ``used`` and, for
+        the constraint lines, ``x0, y0, x1, y1``.
+    track : tuple of ndarray, optional
+        ``(t_year, dra, ddec)`` model track, drawn last so it sits on the data.
+    show_rejected : bool
+        Draw observations with ``used_by_agis_al = False`` as grey crosses.
+        They never set the axis range, so a far outlier cannot hide the rest.
     show_constraints : bool
-        Draw the perpendicular line each measurement actually constrains.
-    subtract_proper_motion : bool
-        Show the parallax alone, with the linear motion removed.
+        Draw the line each observation constrains, perpendicular to the scan.
+    show_errors : bool
+        Draw ±1σ along-scan error bars.
 
     Notes
     -----
-    Gaia measures one coordinate per observation. The perpendicular position of
-    every plotted point comes from the model, not from data; the short lines
-    are the locus the measurement really constrains.
+    Each point is (w, z) rotated to the sky: w = ``centroid_pos_al`` measured,
+    z = ``calculated_pos_ac`` predicted by AGIS. Only the along-scan position
+    is a measurement.
     """
-    layers = [
-        hv.Curve(
-            (track_dra, track_ddec), kdims=["dra"], vdims=["ddec"], label="model track",
-        ).opts(color="#444444", line_width=1.4, alpha=0.9)
-    ]
-    if epochs is not None and len(epochs):
-        if show_constraints and {"x0", "y0", "x1", "y1"} <= set(epochs.columns):
-            segs = [
-                np.column_stack([[r.x0, r.x1], [r.y0, r.y1]])
-                for r in epochs.itertuples()
-            ]
-            layers.append(
-                hv.Path(segs).opts(color="#bbbbbb", line_width=1, alpha=0.7)
-            )
-        layers.append(
-            hv.Points(
-                epochs, kdims=["dra", "ddec"],
-                vdims=[c for c in _hover(epochs) if c in epochs.columns]
-                + (["obs_time_jyear_tcb"] if "obs_time_jyear_tcb" in epochs else []),
-                label="measurement",
-            ).opts(
-                color="obs_time_jyear_tcb" if "obs_time_jyear_tcb" in epochs else _USED_COLOUR,
-                cmap="viridis", colorbar=True, size=5, alpha=0.9,
-                tools=["hover"], clabel="observation time [yr, TCB]",
-            )
-        )
-    label = (
-        "parallax only, proper motion removed" if subtract_proper_motion
-        else "parallax and proper motion"
-    )
-    return hv.Overlay(layers).opts(
-        responsive=True, height=520, legend_position="top_left",
-        xlabel="Δα* [mas]  (offset from the transit reference point)",
-        ylabel="Δδ [mas]",
-        title=f"{title} — {label}",
+    used = epochs[epochs["used"]] if len(epochs) else epochs
+    rejected = epochs[~epochs["used"]] if len(epochs) else epochs
+    layers = []
+    if show_constraints and {"x0", "y0", "x1", "y1"} <= set(epochs.columns) and len(used):
+        layers.append(hv.Path(_segments(used, ("x0", "y0", "x1", "y1"))).opts(
+            color="#c8c8c8", line_width=1, alpha=0.8))
+    if show_errors and len(used):
+        layers.append(hv.Path(_segments(used, ("ex0", "ey0", "ex1", "ey1"))).opts(
+            color="#555555", line_width=1, alpha=0.8))
+    if show_rejected and len(rejected):
+        layers.append(hv.Points(
+            rejected, kdims=["dra", "ddec"],
+            vdims=[c for c in SKY_HOVER if c in rejected.columns and c not in ("dra", "ddec")],
+            label=f"rejected by AGIS ({len(rejected)})",
+        ).opts(color="#999999", marker="x", size=6, alpha=0.7, tools=["hover"]))
+    if len(used):
+        layers.append(hv.Points(
+            used, kdims=["dra", "ddec"],
+            vdims=[c for c in SKY_HOVER if c in used.columns and c not in ("dra", "ddec")],
+            label=f"Gaia measurements ({len(used)})",
+        ).opts(
+            color="obs_time_jyear_tcb", cmap="viridis", colorbar=True, size=5,
+            alpha=0.9, tools=["hover"], clabel="observation time [yr, TCB]",
+        ))
+    if track is not None:
+        _, tdra, tddec = track
+        layers.append(hv.Curve(
+            (tdra, tddec), kdims=["dra"], vdims=["ddec"], label=model_label,
+        ).opts(color="#d62728", line_width=1.6, alpha=0.9))
+    if not layers:
+        return _empty("No observations to place on the sky")
+
+    xs = [used["dra"]] if len(used) else []
+    ys = [used["ddec"]] if len(used) else []
+    if track is not None:
+        xs.append(track[1])
+        ys.append(track[2])
+    xr = _padded_range(np.concatenate([np.asarray(x) for x in xs])) if xs else None
+    yr = _padded_range(np.concatenate([np.asarray(y) for y in ys])) if ys else None
+    what = "proper motion removed" if proper_motion_removed else "as observed"
+    opts = dict(
+        responsive=True, height=560, legend_position="top_left",
+        xlabel="Δα* [mas]  (from the reference point ra0, dec0)", ylabel="Δδ [mas]",
+        title=f"Gaia epoch astrometry on the sky — {what}",
         invert_xaxis=True,   # RA increases to the left, as on the sky
+        data_aspect=1,
     )
+    if xr:
+        opts["xlim"] = xr
+    if yr:
+        opts["ylim"] = yr
+    return hv.Overlay(layers).opts(**opts)
 
 
-def sky_offsets_vs_time(epochs) -> hv.Layout:
-    """The two tangent-plane components against time, model and measurement."""
+def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> hv.Layout:
+    """Δα* and Δδ of the used observations against time, model drawn over them."""
+    used = epochs[epochs["used"]] if len(epochs) else epochs
     panels = []
-    for col, label in (("dra", "Δα* [mas]"), ("ddec", "Δδ [mas]")):
-        if col not in epochs:
+    for k, (col, label) in enumerate((("dra", "Δα* [mas]"), ("ddec", "Δδ [mas]"))):
+        if col not in used or not len(used):
             continue
-        panels.append(
-            hv.Points(
-                epochs, kdims=["obs_time_jyear_tcb", col],
-                vdims=[c for c in _hover(epochs) if c in epochs.columns],
-            ).opts(
-                responsive=True, height=260, color=_USED_COLOUR, size=4,
-                alpha=0.85, tools=["hover"],
-                xlabel="Observation time [yr, TCB]", ylabel=label,
-                title=f"{label} against time",
-            )
-        )
+        layer = hv.Points(
+            used, kdims=["obs_time_jyear_tcb", col],
+            vdims=[c for c in SKY_HOVER if c in used.columns and c != col],
+            label="Gaia measurements",
+        ).opts(color=_USED_COLOUR, size=4, alpha=0.85, tools=["hover"])
+        if track is not None:
+            t, tdra, tddec = track
+            layer = layer * hv.Curve(
+                (t + DR4_REFERENCE_EPOCH_JYEAR, (tdra, tddec)[k]),
+                kdims=["obs_time_jyear_tcb"], vdims=[col], label=model_label,
+            ).opts(color="#d62728", line_width=1.4)
+        panels.append(layer.opts(
+            responsive=True, height=260, legend_position="top_left",
+            xlabel="Observation time [yr, TCB]", ylabel=label, title=f"{label} against time",
+        ))
     if not panels:
         return _empty("No sky-plane positions to show")
     return hv.Layout(panels).cols(1)

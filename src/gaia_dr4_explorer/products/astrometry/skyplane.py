@@ -1,11 +1,13 @@
 """Sky-plane reconstruction of Gaia epoch astrometry.
 
 Gaia's epoch astrometry is **one-dimensional**: each CCD observation measures
-only the along-scan coordinate, and the across-scan centroid is not even
-published in this release. So there is no measured (RA, Dec) per epoch, and any
-view that draws one is showing a model, not data. This module keeps the two
-apart: the fitted track is a model, and each measurement is drawn as the 1-D
-constraint it actually is.
+only the along-scan local-plane coordinate ``w`` (``centroid_pos_al``); the
+measured across-scan centroid is not published in this release. What *is*
+published, for every CCD, is ``calculated_pos_ac`` -- the across-scan
+coordinate ``z`` that the AGIS solution predicts. The pair (w, z) is therefore
+Gaia's own placement of each observation on the sky: w measured, z from the
+catalogue model. This module turns that pair into tangent-plane offsets, and
+keeps it apart from our own refitted model, which is drawn over it.
 
 Conventions, taken from the official ``gaiasupdate`` design matrix and
 **validated** against the published ``parallax_factor_al`` (see
@@ -30,6 +32,25 @@ position ``b`` in AU and a source at ``(alpha, delta)``:
 Projected on the scan direction this reproduces the published
 ``parallax_factor_al`` with a correlation of 1.00000 and an rms of 0.004-0.006,
 the residual being Gaia's ~0.01 AU offset from Earth at L2.
+
+The across-scan axis, **validated** against the published ``calculated_pos_ac``
+(see ``tests/integration/test_skyplane.py``):
+
+    z = -dra * cos(theta) + ddec * sin(theta)
+
+so that, inverting the rotation,
+
+    dra  = w sin(theta) - z cos(theta)
+    ddec = w cos(theta) + z sin(theta)
+
+With this sign the refitted model reproduces ``calculated_pos_ac`` to
+0.000-0.23 mas rms on all twelve prerelease sources; the opposite sign misses
+by up to 1473 mas (HD 114762, whose track spans 2865 mas).
+
+``w`` here is the *published* ``centroid_pos_al``. The observation
+``gaiasupdate`` fits also carries its colour correction, which differs from the
+raw value by 0.005-0.21 mas rms across the sample; that correction stays inside
+``gaiasupdate`` (CLAUDE.md invariant 12).
 """
 
 from __future__ import annotations
@@ -71,6 +92,22 @@ class SkyModel:
             pmra_star=p["pmra_star"][0],
             pmdec=p["pmdec"][0],
         )
+
+
+    @classmethod
+    def from_reference(cls, values: dict[str, float]) -> SkyModel:
+        """Build from a row of the precomputed reference table."""
+        return cls(
+            delta_alpha_star=values["fit_delta_alpha_star_mas"],
+            delta_delta=values["fit_delta_delta_mas"],
+            parallax=values["fit_parallax_mas"],
+            pmra_star=values["fit_pmra_mas_yr"],
+            pmdec=values["fit_pmdec_mas_yr"],
+        )
+
+    def without_proper_motion(self) -> SkyModel:
+        """The same model with the linear motion set to zero."""
+        return SkyModel(self.delta_alpha_star, self.delta_delta, self.parallax, 0.0, 0.0)
 
 
 def parallax_displacement(
@@ -126,28 +163,68 @@ def along_scan(dra: np.ndarray, ddec: np.ndarray, scan_pos_angle_deg: np.ndarray
     return np.asarray(dra) * np.sin(theta) + np.asarray(ddec) * np.cos(theta)
 
 
+def across_scan(dra: np.ndarray, ddec: np.ndarray, scan_pos_angle_deg: np.ndarray) -> np.ndarray:
+    """Project a tangent-plane offset onto the across-scan axis.
+
+    ``z = -dra cos(theta) + ddec sin(theta)``: the sign that reproduces the
+    published ``calculated_pos_ac``.
+    """
+    theta = np.deg2rad(np.asarray(scan_pos_angle_deg, dtype="float64"))
+    return -np.asarray(dra) * np.cos(theta) + np.asarray(ddec) * np.sin(theta)
+
+
+def local_plane_to_sky(
+    w_mas: np.ndarray, z_mas: np.ndarray, scan_pos_angle_deg: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Local-plane (w, z) to tangent-plane (dra, ddec) offsets, in mas.
+
+    The inverse of :func:`along_scan` and :func:`across_scan`. Missing inputs
+    stay missing: a NaN in ``w`` or ``z`` gives NaN offsets.
+    """
+    theta = np.deg2rad(np.asarray(scan_pos_angle_deg, dtype="float64"))
+    w = np.asarray(w_mas, dtype="float64")
+    z = np.asarray(z_mas, dtype="float64")
+    s, c = np.sin(theta), np.cos(theta)
+    return w * s - z * c, w * c + z * s
+
+
+def epoch_sky_positions(frame, *, error_scale: float = 1.0):
+    """Add each CCD observation's sky position to a flattened CCD frame.
+
+    Parameters
+    ----------
+    frame : DataFrame
+        Needs ``centroid_pos_al``, ``calculated_pos_ac``, ``scan_pos_angle``
+        and ``centroid_pos_error_al``. Not modified.
+    error_scale : float
+        Multiplier for the along-scan error bar.
+
+    Returns
+    -------
+    DataFrame
+        A copy with ``dra``, ``ddec`` (mas) and the along-scan error-bar
+        endpoints ``ex0, ey0, ex1, ey1``. The error bar lies along the scan,
+        the only direction the observation measures.
+    """
+    out = frame.copy()
+    theta = out["scan_pos_angle"].to_numpy(dtype="float64")
+    dra, ddec = local_plane_to_sky(
+        out["centroid_pos_al"].to_numpy(dtype="float64"),
+        out["calculated_pos_ac"].to_numpy(dtype="float64"),
+        theta,
+    )
+    ux, uy = scan_unit_vector(theta)
+    sig = error_scale * out["centroid_pos_error_al"].to_numpy(dtype="float64")
+    out["dra"], out["ddec"] = dra, ddec
+    out["ex0"], out["ey0"] = dra - sig * ux, ddec - sig * uy
+    out["ex1"], out["ey1"] = dra + sig * ux, ddec + sig * uy
+    return out
+
+
 def scan_unit_vector(scan_pos_angle_deg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Unit vector along the scan, in (dra, ddec)."""
     theta = np.deg2rad(np.asarray(scan_pos_angle_deg, dtype="float64"))
     return np.sin(theta), np.cos(theta)
-
-
-def measured_positions(
-    model_dra: np.ndarray,
-    model_ddec: np.ndarray,
-    residual_mas: np.ndarray,
-    scan_pos_angle_deg: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Where each measurement places the source, along its own scan direction.
-
-    A measurement constrains the position only along the scan, so the honest
-    placement is the model position displaced by the along-scan residual. The
-    perpendicular coordinate is unmeasured and is *taken from the model* -- it
-    is not data.
-    """
-    ux, uy = scan_unit_vector(scan_pos_angle_deg)
-    r = np.asarray(residual_mas, dtype="float64")
-    return np.asarray(model_dra) + r * ux, np.asarray(model_ddec) + r * uy
 
 
 def constraint_segments(

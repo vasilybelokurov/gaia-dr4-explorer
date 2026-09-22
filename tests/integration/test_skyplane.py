@@ -126,19 +126,6 @@ def test_model_reproduces_the_fit_residuals(provider):
     assert float(np.std(ours - theirs)) < 0.05, "sky model disagrees with the official fit"
 
 
-def test_measurement_is_displaced_only_along_the_scan(provider):
-    """The perpendicular coordinate is model, not data, and must not move."""
-    theta = np.array([37.0, 120.0])
-    mdra, mddec = np.array([1.0, -2.0]), np.array([0.5, 3.0])
-    residual = np.array([0.3, -0.4])
-    pdra, pddec = skyplane.measured_positions(mdra, mddec, residual, theta)
-    ux, uy = skyplane.scan_unit_vector(theta)
-    moved_along = (pdra - mdra) * ux + (pddec - mddec) * uy
-    moved_perp = (pdra - mdra) * (-uy) + (pddec - mddec) * ux
-    assert moved_along == pytest.approx(residual, abs=1e-12)
-    assert moved_perp == pytest.approx([0.0, 0.0], abs=1e-12)
-
-
 def test_constraint_segment_is_perpendicular_to_the_scan(provider):
     theta = np.array([0.0, 45.0, 90.0])
     x0, y0, x1, y1 = skyplane.constraint_segments(
@@ -167,3 +154,98 @@ def test_track_shows_parallax_for_a_nearby_star_and_not_for_a_qso(provider):
             assert wobble > 5.0, f"{sid}: expected parallax loops, wobble {wobble:.2f} mas"
         else:
             assert wobble < 1.0, f"{sid}: QSO should not loop, wobble {wobble:.2f} mas"
+
+
+# ------------------------------------------------ the across-scan axis
+
+HD114762 = 3937211745905473024
+#: Sources whose tracks span hundreds of mas, where a wrong across-scan sign
+#: cannot hide: HD 114762 (2865 mas), Gaia BH3 (759), and two more.
+LARGE_TRACK = (HD114762, BH3, 1663617687609809280, 1457486023639239296)
+
+
+def _used_with_model(provider, sid):
+    raw = provider.raw_table_for(sid)
+    result = fit_dr4_like_single_source(raw, sid)
+    ccd = normalize_epoch_astrometry(raw).ccd
+    f = lambda n: np.asarray(np.ma.filled(ccd[n], np.nan), dtype="float64")  # noqa: E731
+    used = np.asarray(np.ma.filled(ccd["used_by_agis_al"], False), dtype=bool)
+    ns = np.asarray(np.ma.filled(ccd["obs_time_tcb"], 0), dtype="int64")[used]
+    plx = skyplane.parallax_displacement(tcb_ns_to_time(ns), f("ra0")[used], f("dec0")[used])
+    dra, ddec = skyplane.model_offsets(
+        skyplane.SkyModel.from_fit(result), f("relative_time_year")[used], *plx)
+    return {
+        "theta": f("scan_pos_angle")[used], "w": f("centroid_pos_al")[used],
+        "z": f("calculated_pos_ac")[used], "dra": dra, "ddec": ddec,
+    }
+
+
+@pytest.mark.parametrize("sid", LARGE_TRACK)
+def test_across_scan_sign_reproduces_the_published_calculated_pos_ac(provider, sid):
+    """calculated_pos_ac is AGIS's own across-scan prediction. Our refitted
+    model, projected with the chosen sign, must reproduce it; the opposite
+    sign must miss by the size of the track. Measured: 0.07-0.23 mas against
+    160-1473 mas."""
+    d = _used_with_model(provider, sid)
+    right = skyplane.across_scan(d["dra"], d["ddec"], d["theta"])
+    rms = lambda v: float(np.sqrt(np.mean((v - d["z"]) ** 2)))  # noqa: E731
+    assert rms(right) < 0.3, f"{sid}: rms {rms(right):.3f} mas against calculated_pos_ac"
+    assert rms(-right) > 100.0, f"{sid}: flipped sign not rejected ({rms(-right):.1f} mas)"
+
+
+@pytest.mark.parametrize("sid", LARGE_TRACK)
+def test_published_coordinates_land_on_the_model_track(provider, sid):
+    """Placing each observation from (w, z) alone -- no fit involved -- puts it
+    on the refitted track across the scan, and along the scan to within what
+    a five-parameter model can explain.
+
+    Gaia BH3 is the exception by design: its measured along-scan positions
+    leave the single-star track by several mas, which is the black hole's
+    orbit. The across-scan coordinate does not show it, because
+    calculated_pos_ac is itself a five-parameter AGIS prediction.
+    """
+    d = _used_with_model(provider, sid)
+    dra, ddec = skyplane.local_plane_to_sky(d["w"], d["z"], d["theta"])
+    ddx, ddy = dra - d["dra"], ddec - d["ddec"]
+    along = skyplane.along_scan(ddx, ddy, d["theta"])
+    across = skyplane.across_scan(ddx, ddy, d["theta"])
+    rms = lambda v: float(np.sqrt(np.mean(v ** 2)))  # noqa: E731
+    assert rms(across) < 0.3, f"{sid}: across-scan rms {rms(across):.3f} mas"
+    if sid == BH3:
+        assert rms(along) > 3.0, f"BH3 orbit not visible: along-scan rms {rms(along):.2f}"
+    else:
+        assert rms(along) < 1.5, f"{sid}: along-scan rms {rms(along):.3f} mas"
+
+
+def test_local_plane_rotation_inverts_exactly():
+    rng = np.random.default_rng(1)
+    theta = rng.uniform(0, 360, 50)
+    w, z = rng.normal(0, 100, 50), rng.normal(0, 100, 50)
+    dra, ddec = skyplane.local_plane_to_sky(w, z, theta)
+    assert skyplane.along_scan(dra, ddec, theta) == pytest.approx(w, abs=1e-9)
+    assert skyplane.across_scan(dra, ddec, theta) == pytest.approx(z, abs=1e-9)
+    assert np.hypot(dra, ddec) == pytest.approx(np.hypot(w, z), abs=1e-9)
+
+
+def test_missing_coordinates_stay_missing():
+    dra, ddec = skyplane.local_plane_to_sky([np.nan, 1.0], [0.0, np.nan], [10.0, 10.0])
+    assert np.isnan(dra).all() and np.isnan(ddec).all()
+
+
+def test_error_bar_lies_along_the_scan_with_length_two_sigma():
+    import pandas as pd
+
+    frame = pd.DataFrame({
+        "centroid_pos_al": [3.0, -1.0], "calculated_pos_ac": [2.0, 5.0],
+        "scan_pos_angle": [30.0, 200.0], "centroid_pos_error_al": [0.4, 0.1],
+    })
+    e = skyplane.epoch_sky_positions(frame)
+    theta = frame["scan_pos_angle"].to_numpy()
+    ux, uy = skyplane.scan_unit_vector(theta)
+    dx = (e["ex1"] - e["ex0"]).to_numpy()
+    dy = (e["ey1"] - e["ey0"]).to_numpy()
+    assert np.hypot(dx, dy) == pytest.approx([0.8, 0.2], abs=1e-12)
+    assert (dx * -uy + dy * ux) == pytest.approx([0.0, 0.0], abs=1e-12)
+    w = skyplane.along_scan(e["dra"].to_numpy(), e["ddec"].to_numpy(), theta)
+    assert w == pytest.approx([3.0, -1.0], abs=1e-12)
+    assert "dra" not in frame, "the input frame must not be modified"

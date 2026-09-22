@@ -17,6 +17,26 @@ PROVENANCE_LABELS = {
 }
 
 
+#: Index of the per-object main view -- the epoch astrometry tab the app opens
+#: on. The overview is a summary; the main view is the data.
+MAIN_TAB = 1
+
+
+def main_view_button() -> pn.widgets.Button:
+    """A header button that returns to the current object's main view."""
+    return pn.widgets.Button(
+        name="↩ Main view", button_type="light", width=120,
+        description="Back to this object's epoch astrometry tab",
+    )
+
+
+def show_main_view(body: pn.Column) -> None:
+    """Switch the object's tab set in ``body`` back to the main view."""
+    for obj in body.objects:
+        if isinstance(obj, pn.Tabs):
+            obj.active = MAIN_TAB
+
+
 def provenance_badge(kind: str) -> pn.pane.HTML:
     """A coloured label saying where a block of numbers came from."""
     colour = PROVENANCE_COLOURS.get(kind, "#555555")
