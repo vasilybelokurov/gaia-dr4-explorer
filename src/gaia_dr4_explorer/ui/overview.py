@@ -68,7 +68,8 @@ def _epoch_preview(payload) -> pn.Column:
     """
     frame = plots.to_frame(payload.table("ccd"))
     plot = plots.centroid_vs_time(frame).opts(
-        width=900, height=300, title="Along-scan centroid, every CCD observation"
+        responsive=True, height=300,
+        title="Along-scan centroid, every CCD observation",
     )
     return pn.Column(
         pn.pane.HTML(
@@ -78,6 +79,6 @@ def _epoch_preview(payload) -> pn.Column:
             "The <b>Astrometry</b> tab has the filters, the focal-plane matrix "
             "and the flag table.</div>"
         ),
-        pn.pane.HoloViews(plot, sizing_mode="fixed"),
+        pn.pane.HoloViews(plot, sizing_mode="stretch_width"),
         sizing_mode="stretch_width",
     )

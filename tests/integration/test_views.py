@@ -200,3 +200,25 @@ def test_no_plot_shows_a_bare_column_name_on_an_axis(loaded):
             assert "[" in label or " " in label, (
                 f"{builder.__name__} {which}-axis is a bare column name: {label!r}"
             )
+
+
+def test_no_plot_has_a_fixed_pixel_width(loaded):
+    """A hard width clips the right-hand end of the axis in a narrow window."""
+    state, _, payload = loaded
+    view = AstrometryView(context=state.context(), payload=payload)
+    frame = view.filtered()
+    builders = [
+        lambda f: plots.centroid_vs_time(f),
+        lambda f: plots.coverage_timeline(f),
+        lambda f: plots.scan_angle_vs_time(f),
+        lambda f: plots.parallax_factor_vs_time(f),
+        lambda f: plots.uncertainty_distributions(f),
+        lambda f: plots.focal_plane_matrix(f, "used_by_agis_al"),
+    ]
+    for build in builders:
+        obj = build(frame)
+        for element in (obj.traverse() if hasattr(obj, "traverse") else [obj]):
+            opts = element.opts.get("plot").kwargs if hasattr(element, "opts") else {}
+            assert "width" not in opts, (
+                f"{type(element).__name__} sets a fixed width={opts.get('width')}"
+            )

@@ -83,7 +83,8 @@ class FitView:
             pn.pane.HTML(f'<div style="font-size:11px;color:#555;max-width:780px;">'
                          f"{F2_EXPLANATION}</div>"),
             pn.pane.HoloViews(
-                plots.residual_plots(result, self.view.frame), sizing_mode="fixed"
+                plots.residual_plots(result, self.view.frame),
+                sizing_mode="stretch_width",
             ),
         ]
 

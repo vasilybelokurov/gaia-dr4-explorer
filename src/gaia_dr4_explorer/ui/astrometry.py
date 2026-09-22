@@ -139,19 +139,20 @@ class AstrometryView(param.Parameterized):
     def panel(self) -> pn.Column:
         matrix_select = pn.widgets.Select(
             name="Cell quantity", options=MATRIX_QUANTITIES, value=self.matrix_quantity,
-            width=240,
+            width=260,
         )
         matrix_select.link(self, value="matrix_quantity")
         return pn.Column(
             pn.Tabs(
                 # The along-scan centroid is the measurement; it leads.
-                ("Centroid AL", pn.Column(self.centroid)),
-                ("Focal-plane matrix", pn.Column(matrix_select, self.matrix)),
-                ("Coverage", pn.Column(self.coverage)),
-                ("Scan geometry", pn.Column(self.geometry)),
-                ("Uncertainties", pn.Column(self.uncertainties)),
-                ("Flags", pn.Column(self.flag_table)),
+                ("Centroid AL", pn.Column(self.centroid, sizing_mode="stretch_width")),
+                ("Focal-plane matrix", pn.Column(matrix_select, self.matrix, sizing_mode="stretch_width")),
+                ("Coverage", pn.Column(self.coverage, sizing_mode="stretch_width")),
+                ("Scan geometry", pn.Column(self.geometry, sizing_mode="stretch_width")),
+                ("Uncertainties", pn.Column(self.uncertainties, sizing_mode="stretch_width")),
+                ("Flags", pn.Column(self.flag_table, sizing_mode="stretch_width")),
                 dynamic=True,
+                sizing_mode="stretch_width",
             ),
             sizing_mode="stretch_width",
         )
@@ -171,7 +172,8 @@ def _short(value) -> str:
 
 
 def _wrap(obj) -> pn.pane.HoloViews:
-    return pn.pane.HoloViews(obj, sizing_mode="fixed")
+    """Wrap a plot so it fills the width the layout gives it."""
+    return pn.pane.HoloViews(obj, sizing_mode="stretch_width")
 
 
 hv.extension("bokeh")

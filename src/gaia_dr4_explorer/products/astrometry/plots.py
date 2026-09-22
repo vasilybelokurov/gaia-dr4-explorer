@@ -14,6 +14,10 @@ import pandas as pd
 from gaia_dr4_explorer.products.astrometry.normalize import CCD_NAMES
 from gaia_dr4_explorer.products.astrometry.schema import FIELDS
 
+#: Plots are sized by their container, never by a fixed pixel width: a hard
+#: width clips the right-hand end of the axis in a narrower browser window.
+#: Only the height is set here.
+
 #: Columns offered on hover, in order, where present.
 HOVER_COLUMNS = (
     "transit_id_str",
@@ -94,7 +98,7 @@ def coverage_timeline(frame: pd.DataFrame, *, colour_by: str = "ccd_name") -> hv
     points = hv.Points(frame, kdims=list(kdims), vdims=vdims)
     return points.opts(
         color=colour_by, cmap="Category10", size=4, alpha=0.8, tools=["hover", "box_select"],
-        width=820, height=360, legend_position="right",
+        responsive=True, height=360, legend_position="right",
         title="Focal-plane coverage: every CCD observation",
         xlabel="Observation time [yr, TCB]", ylabel="Transit (ordered by time)",
     )
@@ -138,7 +142,7 @@ def centroid_vs_time(frame: pd.DataFrame, *, show_errors: bool = True) -> hv.Ove
     if not layers:
         return _empty("No observations match the current filter")
     return hv.Overlay(layers).opts(
-        width=820, height=360, legend_position="top_right",
+        responsive=True, height=360, legend_position="top_right",
         title="Along-scan centroid",
         # An Overlay inherits axis labels from its first element, which here is
         # an ErrorBars layer carrying bare column names.  State them.
@@ -158,7 +162,7 @@ def scan_angle_vs_time(frame: pd.DataFrame) -> hv.Points:
         vdims=_hover(frame, exclude=("obs_time_jyear_tcb", "scan_pos_angle")),
     ).opts(
         color="status", cmap={"used by AGIS": _USED_COLOUR, "rejected": _REJECTED_COLOUR},
-        size=4, alpha=0.8, tools=["hover"], width=820, height=300,
+        size=4, alpha=0.8, tools=["hover"], responsive=True, height=300,
         title="Scan position angle (published convention, not unwrapped)",
     )
 
@@ -188,7 +192,7 @@ def parallax_factor_vs_time(frame: pd.DataFrame) -> hv.Overlay:
         ).opts(color="#999999", marker="x", size=6)
         layers.append(band)
     return hv.Overlay(layers).opts(
-        width=820, height=300, legend_position="top_right",
+        responsive=True, height=300, legend_position="top_right",
         title="Parallax factor AL (transit-level; missing transits marked, not imputed)",
         xlabel="Observation time [yr, TCB]",
         ylabel=axis_label("parallax_factor_al"),
@@ -213,7 +217,7 @@ def uncertainty_distributions(frame: pd.DataFrame) -> hv.Layout:
         panels.append(
             hv.Histogram((edges, freq)).opts(
                 xlabel=axis_label(field), ylabel="CCD observations",
-                width=400, height=280, title=title, color=_USED_COLOUR,
+                responsive=True, height=280, title=title, color=_USED_COLOUR,
             )
         )
     if "centroid_pos_error_al" in frame.columns:
@@ -221,13 +225,13 @@ def uncertainty_distributions(frame: pd.DataFrame) -> hv.Layout:
             hv.BoxWhisker(
                 used, kdims=["ccd_name"], vdims=["centroid_pos_error_al"],
             ).opts(
-                width=820, height=300, xlabel="Focal-plane strip",
+                responsive=True, height=300, xlabel="Focal-plane strip",
                 ylabel=axis_label("centroid_pos_error_al"),
                 title="Centroid uncertainty by CCD (AGIS-used only)",
             )
         )
     if not panels:
-        return _empty("No uncertainty data").opts(width=820)
+        return _empty("No uncertainty data").opts(responsive=True)
     return hv.Layout(panels).cols(2)
 
 
@@ -260,7 +264,7 @@ def focal_plane_matrix(frame: pd.DataFrame, quantity: str = "used_by_agis_al") -
     data = data.sort_values(["transit_index", "ccd_name"])
     heat = hv.HeatMap(data, kdims=kdims, vdims=vdims)
     return heat.opts(
-        cmap=cmap, colorbar=True, tools=["hover"], width=560,
+        cmap=cmap, colorbar=True, tools=["hover"], responsive=True,
         height=max(320, min(900, 8 * len(order))),
         xlabel="Focal-plane strip", ylabel="Transit (ordered by time)",
         clabel=label, title=f"Transit x focal plane: {label}",
@@ -275,7 +279,7 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
         return _empty(
             f"Cannot align {residuals.size} residuals with {len(used)} AGIS-used rows; "
             "the fit and the displayed selection disagree"
-        ).opts(width=820)
+        ).opts(responsive=True)
     data = used.copy()
     data["residual"] = residuals
     sigma = data["centroid_pos_error_al"].to_numpy()
@@ -287,7 +291,7 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
             data, kdims=["obs_time_jyear_tcb", "residual"],
             vdims=_hover(data, exclude=("obs_time_jyear_tcb",)),
         ).opts(
-            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], width=410, height=280,
+            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], responsive=True, height=280,
             xlabel="Observation time [yr, TCB]", ylabel="residual [mas]",
             title="Residual vs time",
         ),
@@ -295,7 +299,7 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
             data, kdims=["scan_pos_angle", "residual"],
             vdims=_hover(data, exclude=("scan_pos_angle",)),
         ).opts(
-            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], width=410, height=280,
+            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], responsive=True, height=280,
             xlabel=axis_label("scan_pos_angle"), ylabel="residual [mas]",
             title="Residual vs scan angle",
         ),
@@ -303,7 +307,7 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
             data, kdims=["parallax_factor_al", "residual"],
             vdims=_hover(data, exclude=("parallax_factor_al",)),
         ).opts(
-            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], width=410, height=280,
+            size=4, alpha=0.8, color=_USED_COLOUR, tools=["hover"], responsive=True, height=280,
             xlabel=axis_label("parallax_factor_al"), ylabel="residual [mas]",
             title="Residual vs parallax factor",
         ),
@@ -314,14 +318,14 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
         freq, edges = np.histogram(finite, bins=40)
         panels.append(
             hv.Histogram((edges, freq)).opts(
-                width=410, height=280, color=_USED_COLOUR,
+                responsive=True, height=280, color=_USED_COLOUR,
                 xlabel="residual [mas]", ylabel="CCD observations",
                 title="Residual distribution",
             )
         )
     panels.append(
         hv.BoxWhisker(data, kdims=["ccd_name"], vdims=["residual"]).opts(
-            width=820, height=300, xlabel="Focal-plane strip", ylabel="residual [mas]",
+            responsive=True, height=300, xlabel="Focal-plane strip", ylabel="residual [mas]",
             title="Residual by CCD",
         )
     )
@@ -330,5 +334,5 @@ def residual_plots(result, frame: pd.DataFrame) -> hv.Layout:
 
 def _empty(message: str) -> hv.Text:
     return hv.Text(0.5, 0.5, message).opts(
-        xaxis=None, yaxis=None, width=820, height=200, color="#888888"
+        xaxis=None, yaxis=None, responsive=True, height=200, color="#888888"
     )
