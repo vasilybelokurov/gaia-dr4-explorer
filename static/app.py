@@ -20,9 +20,15 @@ import panel as pn
 
 from _bundled_data import prerelease_zip_bytes
 from gaia_dr4_explorer import __version__
+from gaia_dr4_explorer.data.bundled import BundledProductProvider
 from gaia_dr4_explorer.data.catalog import catalog, reference_fits
 from gaia_dr4_explorer.domain import SourceContext, SourceKey
+from gaia_dr4_explorer.domain.product import ProductState
+from gaia_dr4_explorer.products import registry
 from gaia_dr4_explorer.products.astrometry import normalize_epoch_astrometry
+from gaia_dr4_explorer.ui import context as context_ui
+from gaia_dr4_explorer.ui import photometry as photometry_ui
+from gaia_dr4_explorer.ui import spectra as spectra_ui
 from gaia_dr4_explorer.ui.astrometry import AstrometryView
 from gaia_dr4_explorer.ui.components import caveat, release_badge
 from gaia_dr4_explorer.ui.overview import overview_panel
@@ -52,6 +58,16 @@ RELEASE = str(TABLE.meta["votable_params"].get("release", "Gaia DR4_RC3"))
 SOURCE_IDS = sorted({int(v) for v in TABLE["source_id"]})
 ENTRIES = catalog()
 FITS = reference_fits()
+
+# The Gaia archive sends no CORS header, so a page cannot reach it. The DR3
+# products for these twelve sources ship with the package instead.
+BUNDLED = BundledProductProvider()
+registry.load_builtin_plugins()
+PRODUCT_TABS = [
+    (registry.get("epoch_photometry").bind(BUNDLED), "Photometry", photometry_ui),
+    (registry.get("xp_spectrum").bind(BUNDLED), "Spectra", spectra_ui),
+    (registry.get("context").bind(BUNDLED), "Context", context_ui),
+]
 
 
 def subset(source_id):
@@ -109,12 +125,22 @@ def build(source_id):
 
     payload = _Payload()
     view = AstrometryView(context=context, payload=payload)
-    return pn.Tabs(
+    tabs = [
         ("Overview", overview_panel(context, payload, RELEASE)),
         ("Astrometry", pn.Row(view.controls(), view.panel())),
         ("Source fit", fit_panel(source_id)),
-        dynamic=True, active=1,
-    )
+    ]
+    for plugin, title, module in PRODUCT_TABS:
+        descriptor = plugin.discover(context)
+        if descriptor.state is not ProductState.AVAILABLE:
+            tabs.append((title, module.unavailable_panel(descriptor)))
+            continue
+        try:
+            tabs.append((title, plugin.build_view(context, plugin.load(context)).panel()))
+        except Exception as exc:
+            tabs.append((title, pn.pane.HTML(
+                f"<div style='color:#c0392b'>Could not load {title}: {exc}</div>")))
+    return pn.Tabs(*tabs, dynamic=True, active=1)
 
 
 options = {
@@ -152,10 +178,10 @@ pn.template.FastListTemplate(
         pn.pane.HTML("<hr style='border:none;border-top:1px solid #eee'>"),
         pn.pane.HTML(
             "<div style='font-size:11px;color:#666'>"
-            "<b>Browser build.</b> Runs entirely client-side. The live "
-            "<code>gaiasupdate</code> fit and Gaia DR3 photometry need a Python "
-            "process and a network call, so they are available only when running "
-            "locally.<br><br>"
+            "<b>Browser build.</b> Runs entirely client-side, with the Gaia DR4 "
+            "prerelease and the DR3 photometry, spectra and SIMBAD/ADS records "
+            "bundled into the page. Only the live <code>gaiasupdate</code> fit "
+            "needs a Python process; its results here are precomputed.<br><br>"
             f"<a href='https://github.com/vasilybelokurov/gaia-dr4-explorer'>Source</a>"
             f" &middot; v{__version__}</div>"
         ),

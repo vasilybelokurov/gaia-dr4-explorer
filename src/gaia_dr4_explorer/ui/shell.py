@@ -41,8 +41,12 @@ def build_app(
     astrometry = registry.get("epoch_astrometry")
     astrometry.bind(provider)
     photometry = registry.get("epoch_photometry")
+    spectra = registry.get("xp_spectrum")
+    context_plugin = registry.get("context")
     if archive is not None:
         photometry.bind(archive)
+        spectra.bind(archive)
+        context_plugin.bind(archive)
 
     source_ids = provider.source_ids()
     state = AppState(
@@ -91,7 +95,9 @@ def build_app(
             tabs.append(("Source fit", FitView(state, view).panel()))
         else:
             tabs.append(("Source fit", _static_fit_notice(context)))
-        tabs.append(("Photometry", _photometry_tab(state, photometry, context)))
+        tabs.append(("Photometry", _product_tab(state, photometry, context)))
+        tabs.append(("Spectra", _product_tab(state, spectra, context)))
+        tabs.append(("Context", _product_tab(state, context_plugin, context)))
         tabs.append(("Raw / metadata", raw_panel(context, payload, astrometry)))
         # Open on the epoch data itself.  The overview is a summary; landing
         # there means the first thing a user sees of an epoch-astrometry
@@ -183,32 +189,32 @@ def build_app(
     return template
 
 
-def _photometry_tab(state, plugin, context) -> pn.Column:
-    """Build the photometry tab, loading only if the product exists.
+#: Which "unavailable" panel belongs to which plugin.
+_UNAVAILABLE_PANELS = {
+    "epoch_photometry": "gaia_dr4_explorer.ui.photometry",
+    "xp_spectrum": "gaia_dr4_explorer.ui.spectra",
+    "context": "gaia_dr4_explorer.ui.context",
+}
 
-    Availability is answered from shipped DR3 metadata, so an unavailable
-    source costs no network request at all.
+
+def _product_tab(state, plugin, context) -> pn.Column:
+    """Build one product tab, loading only if the product exists.
+
+    Availability is answered from shipped metadata, so an unavailable source
+    costs no request at all, and nothing is loaded until the user asks.
     """
+    import importlib
+
     from gaia_dr4_explorer.domain.product import ProductState
-    from gaia_dr4_explorer.ui.photometry import unavailable_panel
 
     descriptor = plugin.discover(context)
+    module = importlib.import_module(_UNAVAILABLE_PANELS[plugin.key])
     if descriptor.state is not ProductState.AVAILABLE:
-        return unavailable_panel(descriptor)
+        return module.unavailable_panel(descriptor)
 
-    button = pn.widgets.Button(
-        name="Load Gaia DR3 epoch photometry", button_type="primary", width=280
-    )
-    out = pn.Column(
-        pn.pane.HTML(
-            f"<div style='font-size:12px;color:#555;max-width:720px'>{descriptor.detail}."
-            " Loading fetches it from the Gaia archive; it is cached afterwards.</div>"
-        ),
-        sizing_mode="stretch_width",
-    )
+    out = pn.Column(sizing_mode="stretch_width")
 
-    def load(_event) -> None:
-        button.loading = True
+    def render() -> None:
         try:
             payload = state.payload(plugin)
         except Exception as exc:
@@ -216,12 +222,10 @@ def _photometry_tab(state, plugin, context) -> pn.Column:
                 pn.pane.HTML(f"<div style='color:#c0392b'>Could not load: {exc}</div>")
             ]
             return
-        finally:
-            button.loading = False
         out.objects = [plugin.build_view(context, payload).panel()]
 
-    button.on_click(load)
-    return pn.Column(button, out, sizing_mode="stretch_width")
+    render()
+    return out
 
 
 def _static_fit_notice(context) -> pn.Column:

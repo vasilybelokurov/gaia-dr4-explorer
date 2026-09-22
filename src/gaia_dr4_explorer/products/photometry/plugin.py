@@ -29,7 +29,7 @@ class EpochPhotometryPlugin(ProductPlugin):
     key = "epoch_photometry"
     title = "Photometry"
     release = "Gaia DR3"
-    static_safe = False   # needs a live archive request
+    static_safe = True   # served from the bundle in a browser build
 
     def __init__(self, archive=None) -> None:
         self._archive = archive

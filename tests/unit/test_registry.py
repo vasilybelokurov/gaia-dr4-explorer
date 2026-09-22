@@ -57,13 +57,23 @@ def test_builtin_plugins_register_once():
     first = registry.load_builtin_plugins()
     second = registry.load_builtin_plugins()
     assert [p.key for p in first] == [p.key for p in second] == [
-        "epoch_astrometry", "epoch_photometry",
+        "epoch_astrometry", "epoch_photometry", "xp_spectrum", "context",
     ]
 
 
-def test_photometry_is_not_static_safe():
-    """It needs a live archive request, so a static build must exclude it."""
+def test_every_builtin_plugin_is_static_safe():
+    """All four are served from bundled data, so the browser build has them all."""
     registry.load_builtin_plugins()
-    static = [p.key for p in registry.all_plugins(static_only=True)]
-    assert "epoch_astrometry" in static
-    assert "epoch_photometry" not in static
+    everything = {p.key for p in registry.all_plugins()}
+    static = {p.key for p in registry.all_plugins(static_only=True)}
+    assert static == everything, f"not served in a browser build: {everything - static}"
+
+
+def test_plugins_declare_their_release():
+    registry.load_builtin_plugins()
+    releases = {p.key: p.release for p in registry.all_plugins()}
+    assert releases["epoch_astrometry"] == "Gaia DR4_RC3"
+    assert releases["epoch_photometry"] == "Gaia DR3"
+    assert releases["xp_spectrum"] == "Gaia DR3"
+    for key, release in releases.items():
+        assert release, f"{key} does not say which release it draws from"

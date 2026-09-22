@@ -20,23 +20,30 @@ This is an explorer and diagnostic environment, not a bulk catalogue-analysis sy
 | 6 | Plugin registry | done |
 | 8 | Raw inspector and export | done |
 | 9 | Photometry plugin (Gaia DR3 light curves) | done |
-| 10–11 | Spectra, SIMBAD/ADS context | not started |
+| 10 | Spectra plugin (Gaia DR3 BP/RP mean spectrum) | done |
+| 11 | Context plugin (SIMBAD identity, ADS bibliography) | done |
 
 ## Live browser version
 
 <https://vasilybelokurov.github.io/gaia-dr4-explorer/>
 
-Runs entirely in your browser via Pyodide, with the prerelease archive bundled
-into the page. It does the data loading, normalization and every astrometry
-view. Two things it cannot do, and says so:
+Runs entirely in your browser via Pyodide. All six tabs work: the prerelease
+epoch astrometry, and the Gaia DR3 photometry, BP/RP spectra and SIMBAD/ADS
+records, all bundled into the page.
 
-- **the live fit** — `gaiasupdate` imports `astroquery` at module scope, and
-  `astroquery` is not in the Pyodide distribution (Pyodide also ships pandas 3.x
-  against `gaiasupdate`'s `pandas<3.0`). Fit results are shown from the
-  precomputed reference table instead.
-- **Gaia DR3 photometry** — needs a live archive request.
+The one thing it cannot do is the **live fit**: `gaiasupdate` imports
+`astroquery` at module scope, and `astroquery` is not in the Pyodide
+distribution (Pyodide also ships pandas 3.x against `gaiasupdate`'s
+`pandas<3.0`). Fit results come from the precomputed reference table instead.
+Run it locally for a live fit.
 
-Run it locally for both.
+**Why the DR3 products are bundled rather than fetched.** Verified 2026-09-22:
+`gea.esac.esa.int` sends no `Access-Control-Allow-Origin` header, so a browser
+can never reach the Gaia archive. SIMBAD does allow `*` and could be queried
+live; ADS does not, and its API token must never ship in a public page. All of
+it is therefore fetched once at build time into
+`src/gaia_dr4_explorer/resources/dr3_products_bundle.zip` (68 kB). Only public
+bibliographic results are stored; no credential is written.
 
 ## Install
 

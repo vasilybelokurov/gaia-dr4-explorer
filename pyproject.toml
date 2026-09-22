@@ -35,9 +35,10 @@ gaia-dr4-explorer = "gaia_dr4_explorer.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-# The reference tables must travel in the wheel: the static browser build has
-# no repository checkout to read them from.
-"gaia_dr4_explorer.resources" = ["*.csv"]
+# Everything in resources/ must travel in the wheel: the browser build has no
+# repository checkout, and the Gaia archive sends no CORS header, so the DR3
+# product bundle is the only way that build can show photometry or spectra.
+"gaia_dr4_explorer.resources" = ["*.csv", "*.zip"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
