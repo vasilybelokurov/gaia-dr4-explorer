@@ -19,7 +19,8 @@ This is an explorer and diagnostic environment, not a bulk catalogue-analysis sy
 | 4, 5 | Source selector and the astrometry views | done |
 | 6 | Plugin registry | done |
 | 8 | Raw inspector and export | done |
-| 9–11 | Photometry, spectra, SIMBAD/ADS context | not started |
+| 9 | Photometry plugin (Gaia DR3 light curves) | done |
+| 10–11 | Spectra, SIMBAD/ADS context | not started |
 
 ## Install
 
@@ -71,6 +72,18 @@ itself `Gaia DR4_RC3` and contains 1008 FoV transits for 12 sources: 10080 CCD o
 `docs/prerelease_reference.csv` holds the per-source reference values, with the release-page
 metadata, the quantities we measure from the VOTable, and the fit results kept in separate
 columns so the interface can always say which is which.
+
+## Photometry, and which release it comes from
+
+Gaia DR4 epoch photometry is **not** in the June-2026 prerelease and is not public
+until 2026-12-02. The Photometry tab therefore draws on **Gaia DR3**, and says so on
+every panel. Of the 12 prerelease sources, DR3 published epoch photometry for three:
+Gaia-4 and the two variable QSOs. `docs/dr3_products.csv` records the availability
+flags for all twelve, queried on 2026-09-22, so the application can report
+availability without a network call.
+
+Loading a light curve is the only action that contacts the Gaia archive. It is never
+automatic, and the retrieved product is cached.
 
 ## Scientific caveats
 

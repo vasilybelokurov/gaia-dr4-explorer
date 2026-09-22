@@ -56,4 +56,14 @@ def test_discovery_does_not_load():
 def test_builtin_plugins_register_once():
     first = registry.load_builtin_plugins()
     second = registry.load_builtin_plugins()
-    assert [p.key for p in first] == [p.key for p in second] == ["epoch_astrometry"]
+    assert [p.key for p in first] == [p.key for p in second] == [
+        "epoch_astrometry", "epoch_photometry",
+    ]
+
+
+def test_photometry_is_not_static_safe():
+    """It needs a live archive request, so a static build must exclude it."""
+    registry.load_builtin_plugins()
+    static = [p.key for p in registry.all_plugins(static_only=True)]
+    assert "epoch_astrometry" in static
+    assert "epoch_photometry" not in static

@@ -31,13 +31,18 @@ def default_source_id(source_ids: list[int]) -> int:
     return source_ids[0]
 
 
-def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTemplate:
+def build_app(
+    provider, *, allow_fit: bool = True, archive=None
+) -> pn.template.FastListTemplate:
     """Assemble the application.  Loads nothing until a source is selected."""
     pn.extension("tabulator", notifications=True)
 
     plugins = registry.load_builtin_plugins()
     astrometry = registry.get("epoch_astrometry")
     astrometry.bind(provider)
+    photometry = registry.get("epoch_photometry")
+    if archive is not None:
+        photometry.bind(archive)
 
     source_ids = provider.source_ids()
     state = AppState(
@@ -86,6 +91,7 @@ def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTempla
             tabs.append(("Source fit", FitView(state, view).panel()))
         else:
             tabs.append(("Source fit", _static_fit_notice(context)))
+        tabs.append(("Photometry", _photometry_tab(state, photometry, context)))
         tabs.append(("Raw / metadata", raw_panel(context, payload, astrometry)))
         # Open on the epoch data itself.  The overview is a summary; landing
         # there means the first thing a user sees of an epoch-astrometry
@@ -177,6 +183,47 @@ def build_app(provider, *, allow_fit: bool = True) -> pn.template.FastListTempla
     return template
 
 
+def _photometry_tab(state, plugin, context) -> pn.Column:
+    """Build the photometry tab, loading only if the product exists.
+
+    Availability is answered from shipped DR3 metadata, so an unavailable
+    source costs no network request at all.
+    """
+    from gaia_dr4_explorer.domain.product import ProductState
+    from gaia_dr4_explorer.ui.photometry import unavailable_panel
+
+    descriptor = plugin.discover(context)
+    if descriptor.state is not ProductState.AVAILABLE:
+        return unavailable_panel(descriptor)
+
+    button = pn.widgets.Button(
+        name="Load Gaia DR3 epoch photometry", button_type="primary", width=280
+    )
+    out = pn.Column(
+        pn.pane.HTML(
+            f"<div style='font-size:12px;color:#555;max-width:720px'>{descriptor.detail}."
+            " Loading fetches it from the Gaia archive; it is cached afterwards.</div>"
+        ),
+        sizing_mode="stretch_width",
+    )
+
+    def load(_event) -> None:
+        button.loading = True
+        try:
+            payload = state.payload(plugin)
+        except Exception as exc:
+            out.objects = [
+                pn.pane.HTML(f"<div style='color:#c0392b'>Could not load: {exc}</div>")
+            ]
+            return
+        finally:
+            button.loading = False
+        out.objects = [plugin.build_view(context, payload).panel()]
+
+    button.on_click(load)
+    return pn.Column(button, out, sizing_mode="stretch_width")
+
+
 def _static_fit_notice(context) -> pn.Column:
     from gaia_dr4_explorer.data.catalog import reference_fits
 
@@ -213,6 +260,6 @@ def _plugin_status(plugins) -> pn.pane.HTML:
     return pn.pane.HTML(
         f"<b>Products</b><ul style='font-size:11px;color:#555;margin:4px 0 0 16px;padding:0'>"
         f"{items}</ul>"
-        "<div style='font-size:11px;color:#888;margin-top:6px'>Photometry, spectra and "
-        "external context are not yet implemented.</div>"
+        "<div style='font-size:11px;color:#888;margin-top:6px'>Spectra and external "
+        "context are not yet implemented.</div>"
     )

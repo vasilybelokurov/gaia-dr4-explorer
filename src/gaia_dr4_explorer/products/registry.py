@@ -42,7 +42,10 @@ def clear() -> None:
 def load_builtin_plugins() -> list[ProductPlugin]:
     """Import and register the plugins that ship with the application."""
     from gaia_dr4_explorer.products.astrometry.plugin import EpochAstrometryPlugin
+    from gaia_dr4_explorer.products.photometry.plugin import EpochPhotometryPlugin
 
     if "epoch_astrometry" not in _REGISTRY:
         register(EpochAstrometryPlugin())
+    if "epoch_photometry" not in _REGISTRY:
+        register(EpochPhotometryPlugin())
     return all_plugins()

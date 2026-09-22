@@ -8,11 +8,13 @@ from gaia_dr4_explorer.config import AppConfig
 def build(config: AppConfig, *, allow_fit: bool = True):
     """Construct the Panel application for *config*."""
     from gaia_dr4_explorer.data import PreReleaseProvider
+    from gaia_dr4_explorer.data.archive import GaiaArchiveProvider
     from gaia_dr4_explorer.ui.shell import build_app
 
     provider = PreReleaseProvider(config)
     provider.load_table()  # fail fast, with a clear message, before serving
-    return build_app(provider, allow_fit=allow_fit)
+    archive = GaiaArchiveProvider(config)
+    return build_app(provider, allow_fit=allow_fit, archive=archive)
 
 
 def serve(config: AppConfig, *, port: int = 5006, show: bool = False) -> None:
