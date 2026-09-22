@@ -27,6 +27,11 @@ ONE_DIMENSIONAL_NOTE = (
 )
 
 
+def _heading(text: str) -> pn.pane.HTML:
+    return pn.pane.HTML(
+        f"<div style='font-size:13px;font-weight:600;margin:14px 0 0 0'>{text}</div>")
+
+
 class SkyPlaneView(param.Parameterized):
     """Epoch astrometry on the sky for one source, with an optional model."""
 
@@ -34,9 +39,6 @@ class SkyPlaneView(param.Parameterized):
     show_constraints = param.Boolean(default=True, label="Show 1-D constraint lines")
     show_errors = param.Boolean(default=True, label="Show along-scan ±1σ bars")
     show_rejected = param.Boolean(default=True, label="Show observations rejected by AGIS")
-    subtract_proper_motion = param.Boolean(
-        default=False, label="Remove the model proper motion"
-    )
     constraint_length = param.Number(
         default=0.0, bounds=(0.0, 50.0), step=0.5,
         label="Constraint line half-length [mas] (0 = auto)",
@@ -60,12 +62,9 @@ class SkyPlaneView(param.Parameterized):
 
     # ------------------------------------------------------------- derived
 
-    def _pm_removed(self) -> bool:
-        return self.subtract_proper_motion and self.model is not None
-
-    def _epochs(self):
+    def _epochs(self, *, pm_removed: bool = False):
         e = self.base.copy()
-        if self._pm_removed():
+        if pm_removed and self.model is not None:
             t = e["relative_time_year"].to_numpy(dtype="float64")
             shift_x, shift_y = self.model.pmra_star * t, self.model.pmdec * t
             for a, b in (("dra", "ddec"), ("ex0", "ey0"), ("ex1", "ey1")):
@@ -79,10 +78,10 @@ class SkyPlaneView(param.Parameterized):
         e["x0"], e["y0"], e["x1"], e["y1"] = x0, y0, x1, y1
         return e
 
-    def _track(self):
+    def _track(self, *, pm_removed: bool = False):
         if self.model is None or not self.show_model:
             return None
-        model = self.model.without_proper_motion() if self._pm_removed() else self.model
+        model = self.model.without_proper_motion() if pm_removed else self.model
         t = self.base["relative_time_year"].to_numpy(dtype="float64")
         t = t[np.isfinite(t)]
         if not t.size:
@@ -97,21 +96,36 @@ class SkyPlaneView(param.Parameterized):
 
     # --------------------------------------------------------------- views
 
-    @param.depends("show_model", "show_constraints", "show_errors", "show_rejected",
-                   "subtract_proper_motion", "constraint_length")
-    def sky(self):
+    def _sky(self, *, pm_removed: bool):
         return pn.pane.HoloViews(
             plots.sky_epochs(
-                self._epochs(), self._track(),
+                self._epochs(pm_removed=pm_removed), self._track(pm_removed=pm_removed),
                 show_rejected=self.show_rejected, show_constraints=self.show_constraints,
-                show_errors=self.show_errors, proper_motion_removed=self._pm_removed(),
+                show_errors=self.show_errors, proper_motion_removed=pm_removed,
                 model_label=self.model_label,
             ),
             sizing_mode="stretch_width",
         )
 
-    @param.depends("show_model", "subtract_proper_motion")
+    @param.depends("show_model", "show_constraints", "show_errors", "show_rejected",
+                   "constraint_length")
+    def sky(self):
+        """Panel 1: measured and modelled positions on the sky, as observed."""
+        return self._sky(pm_removed=False)
+
+    @param.depends("show_model", "show_constraints", "show_errors", "show_rejected",
+                   "constraint_length")
+    def sky_pm_removed(self):
+        """Panel 2: the same, with the model's proper motion taken out."""
+        if self.model is None:
+            return pn.pane.HTML(
+                "<div style='font-size:12px;color:#666;padding:12px 0'>Removing the "
+                "proper motion needs a model: fit it with the button above.</div>")
+        return self._sky(pm_removed=True)
+
+    @param.depends("show_model")
     def components(self):
+        """Panel 3: Δα* and Δδ against time, measured and modelled."""
         return pn.pane.HoloViews(
             plots.sky_offsets_vs_time(
                 self._epochs(), self._track(), model_label=self.model_label),
@@ -121,7 +135,7 @@ class SkyPlaneView(param.Parameterized):
     def controls(self) -> pn.Column:
         names = ["show_constraints", "show_errors", "show_rejected", "constraint_length"]
         if self.model is not None:
-            names = ["show_model", "subtract_proper_motion", *names]
+            names = ["show_model", *names]
         return pn.Column(
             pn.pane.HTML("<b>Sky plane</b>"),
             pn.Param(self.param, parameters=names, show_name=False),
@@ -153,11 +167,12 @@ class SkyPlaneView(param.Parameterized):
                 f"<br><span style='color:#777;font-size:11px'>{counts}</span></div>"
             ),
             *([extra] if extra is not None else []),
-            pn.Tabs(
-                ("On the sky", pn.Column(self.sky, sizing_mode="stretch_width")),
-                ("Components vs time", pn.Column(self.components, sizing_mode="stretch_width")),
-                dynamic=True, sizing_mode="stretch_width",
-            ),
+            _heading("1. On the sky — measured and modelled"),
+            pn.Column(self.sky, sizing_mode="stretch_width"),
+            _heading("2. On the sky — proper motion removed"),
+            pn.Column(self.sky_pm_removed, sizing_mode="stretch_width"),
+            _heading("3. Δα* and Δδ against time"),
+            pn.Column(self.components, sizing_mode="stretch_width"),
             sizing_mode="stretch_width",
         )
 

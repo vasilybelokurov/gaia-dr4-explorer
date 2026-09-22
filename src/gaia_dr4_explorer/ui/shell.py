@@ -110,7 +110,8 @@ def build_app(
         # there means the first thing a user sees of an epoch-astrometry
         # explorer contains no epoch astrometry.
         body.objects = [
-            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=MAIN_TAB)
+            main_button,
+            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=MAIN_TAB),
         ]
 
     def on_select(event) -> None:
@@ -181,7 +182,7 @@ def build_app(
 
     template = pn.template.FastListTemplate(
         title=TITLE,
-        header=[header_label, main_button, release_badge(state.release)],
+        header=[header_label, release_badge(state.release)],
         sidebar=[
             pn.pane.HTML("<b>Data source</b><br><span style='font-size:12px;color:#555'>"
                          "Gaia DR4 prerelease (June 2026)</span>"),

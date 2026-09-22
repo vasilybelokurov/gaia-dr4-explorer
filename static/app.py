@@ -191,7 +191,7 @@ def on_select(event):
         f"<span style='font-size:15px'><b>{name}</b>"
         f"<span style='color:#888'> &nbsp;{sid}</span></span>"
     )
-    body.objects = [build(sid)]
+    body.objects = [main_button, build(sid)]
 
 
 selector.param.watch(on_select, "value")
@@ -199,7 +199,7 @@ on_select(type("E", (), {"new": default})())
 
 pn.template.FastListTemplate(
     title="Gaia DR4 Object Explorer",
-    header=[header, main_button, release_badge(RELEASE)],
+    header=[header, release_badge(RELEASE)],
     sidebar=[
         pn.pane.HTML(
             "<b>Data source</b><br><span style='font-size:12px;color:#555'>"
