@@ -96,7 +96,7 @@ def _downloads(context, payload, plugin) -> pn.Row:
                 callback=_make(), filename=name, label=label, button_type="default", width=210
             )
         )
-    return pn.Row(*buttons, sizing_mode="stretch_width")
+    return pn.FlexBox(*buttons, flex_wrap="wrap", sizing_mode="stretch_width")
 
 
 __all__ = ["raw_panel", "FORMATS"]

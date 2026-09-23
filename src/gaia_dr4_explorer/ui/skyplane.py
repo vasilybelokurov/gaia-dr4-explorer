@@ -137,21 +137,21 @@ class SkyPlaneView(param.Parameterized):
     @param.depends("show_model")
     def components(self):
         """Panel 3: Δα* and Δδ against time, measured and modelled."""
-        return pn.Row(*[
+        return pn.FlexBox(*[
             pn.pane.HoloViews(p, margin=PANEL_GAP) for p in plots.sky_offsets_vs_time(
                 self._epochs(), self._track(), model_label=LEGEND_MODEL_LABEL)
-        ])
+        ], flex_wrap="wrap")
 
-    def controls(self) -> pn.Row:
-        """A horizontal strip, so the plots below can use the full width."""
+    def controls(self) -> pn.FlexBox:
+        """A horizontal strip that wraps, so the plots below get the full width."""
         names = ["show_constraints", "show_errors", "show_rejected", "constraint_length"]
         if self.model is not None:
             names = ["show_model", *names]
-        return pn.Row(
+        return pn.FlexBox(
             pn.pane.HTML("<b>Sky plane</b>", margin=(12, 12, 0, 0)),
             pn.Param(self.param, parameters=names, show_name=False,
-                     default_layout=pn.Row),
-            sizing_mode="stretch_width",
+                     default_layout=pn.FlexBox),
+            flex_wrap="wrap", sizing_mode="stretch_width",
         )
 
     def panel(self, *, extra=None) -> pn.Column:
@@ -179,11 +179,15 @@ class SkyPlaneView(param.Parameterized):
                 f"<br><span style='color:#777;font-size:11px'>{counts}</span></div>"
             ),
             *([extra] if extra is not None else []),
-            pn.Row(
+            # Side by side when the window allows, stacked when it does not:
+            # the plots have fixed frames (equal mas per pixel), so they wrap
+            # rather than shrink or run off the edge.
+            pn.FlexBox(
                 pn.Column(_heading("1. On the sky — measured and modelled"), self.sky,
                           margin=PANEL_GAP),
                 pn.Column(_heading("2. On the sky — proper motion removed"),
                           self.sky_pm_removed),
+                flex_wrap="wrap",
             ),
             _heading("3. Δα* and Δδ against time"),
             pn.Column(self.components),

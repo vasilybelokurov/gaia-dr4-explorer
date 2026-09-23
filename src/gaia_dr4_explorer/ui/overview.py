@@ -8,6 +8,9 @@ from gaia_dr4_explorer.data.catalog import entry
 from gaia_dr4_explorer.products.astrometry import plots
 from gaia_dr4_explorer.ui.components import notes_panel, stat_table
 
+#: Width of one statistics block on the overview, in px.
+STAT_BLOCK_WIDTH = 360
+
 
 def overview_panel(context, payload, release: str) -> pn.Column:
     """Three clearly separated blocks, so no number's origin is ambiguous."""
@@ -42,10 +45,16 @@ def overview_panel(context, payload, release: str) -> pn.Column:
             f"<div style='color:#888;font-family:monospace;font-size:13px'>"
             f"{context.source_id}</div>"
         ),
-        pn.Row(
-            stat_table(identity, kind="measured", title="Identity"),
-            stat_table(page, kind="page", title="Release-page values"),
-            stat_table(measured, kind="measured", title="Computed from the VOTable"),
+        # Side by side, wrapping in a narrow window instead of pushing the third
+        # block off-screen. A FlexBox item without a width fills the row, so
+        # each block gets one.
+        pn.FlexBox(
+            *[pn.Column(block, width=STAT_BLOCK_WIDTH) for block in (
+                stat_table(identity, kind="measured", title="Identity"),
+                stat_table(page, kind="page", title="Release-page values"),
+                stat_table(measured, kind="measured", title="Computed from the VOTable"),
+            )],
+            flex_wrap="wrap",
         ),
         pn.pane.HTML(
             '<div style="font-size:11px;color:#777;max-width:760px;">'
