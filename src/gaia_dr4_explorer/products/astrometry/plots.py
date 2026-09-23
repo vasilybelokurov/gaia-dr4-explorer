@@ -353,7 +353,7 @@ def _segments(frame, cols) -> list:
 
 #: Frame of a sky panel, in screen pixels. Fixed, so that the limits below
 #: can give both axes the same scale in mas per pixel.
-SKY_FRAME = (600, 420)
+SKY_FRAME = (400, 370)
 
 
 def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
@@ -382,7 +382,7 @@ def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
 def sky_epochs(
     epochs, track=None, *, show_rejected: bool = True, show_constraints: bool = True,
     show_errors: bool = True, proper_motion_removed: bool = False,
-    model_label: str = "model",
+    model_label: str = "model", colorbar: bool = True,
 ) -> hv.Overlay:
     """Gaia epoch astrometry on the sky, with an optional model drawn over it.
 
@@ -400,6 +400,9 @@ def sky_epochs(
         Draw the line each observation constrains, perpendicular to the scan.
     show_errors : bool
         Draw ±1σ along-scan error bars.
+    colorbar : bool
+        Draw the time colour bar. Side-by-side panels share one; the colour
+        range is fixed to the observation span, so panels map time alike.
 
     Notes
     -----
@@ -420,16 +423,18 @@ def sky_epochs(
         layers.append(hv.Points(
             rejected, kdims=["dra", "ddec"],
             vdims=[c for c in SKY_HOVER if c in rejected.columns and c not in ("dra", "ddec")],
-            label=f"rejected by AGIS ({len(rejected)})",
+            label=f"rejected ({len(rejected)})",
         ).opts(color="#999999", marker="x", size=6, alpha=0.7, tools=["hover"]))
     if len(used):
         layers.append(hv.Points(
             used, kdims=["dra", "ddec"],
             vdims=[c for c in SKY_HOVER if c in used.columns and c not in ("dra", "ddec")],
-            label=f"Gaia measurements ({len(used)})",
+            label=f"measured ({len(used)})",
         ).opts(
-            color="obs_time_jyear_tcb", cmap="viridis", colorbar=True, size=5,
+            color="obs_time_jyear_tcb", cmap="viridis", colorbar=colorbar, size=5,
             alpha=0.9, tools=["hover"], clabel="observation time [yr, TCB]",
+            clim=(float(np.nanmin(epochs["obs_time_jyear_tcb"])),
+                  float(np.nanmax(epochs["obs_time_jyear_tcb"]))),
         ))
     if track is not None:
         _, tdra, tddec = track
@@ -446,7 +451,9 @@ def sky_epochs(
         ys.append(np.asarray(track[2]))
     opts = dict(
         frame_width=SKY_FRAME[0], frame_height=SKY_FRAME[1],
-        legend_position="right", title="",
+        # Below, not beside: the two sky panels sit side by side.
+        legend_position="bottom", title="",
+        toolbar="above",   # beside the colour bar it ran into the next panel
         xlabel="Δα* [mas]  (from the reference point ra0, dec0)", ylabel="Δδ [mas]",
         invert_xaxis=True,   # RA increases to the left, as on the sky
         # Each panel keeps its own ranges: HoloViews otherwise links every plot
@@ -476,7 +483,7 @@ def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> li
         layer = hv.Points(
             used, kdims=["obs_time_jyear_tcb", col],
             vdims=[c for c in SKY_HOVER if c in used.columns and c != col],
-            label="Gaia measurements",
+            label="measured",
         ).opts(color=_USED_COLOUR, size=4, alpha=0.85, tools=["hover"])
         if track is not None:
             t, tdra, tddec = track
@@ -485,7 +492,8 @@ def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> li
                 kdims=["obs_time_jyear_tcb"], vdims=[col], label=model_label,
             ).opts(color="#d62728", line_width=1.4)
         panels.append(layer.opts(
-            frame_width=SKY_FRAME[0], frame_height=220, legend_position="right",
+            frame_width=SKY_FRAME[0], frame_height=220, legend_position="bottom",
+            toolbar="above",
             xlabel="Observation time [yr, TCB]", ylabel=label,
             # "dra" here is a y axis; linked, it would take panel 1's x range.
             shared_axes=False,

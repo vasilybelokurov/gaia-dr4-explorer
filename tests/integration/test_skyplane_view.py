@@ -139,3 +139,15 @@ def test_time_panels_are_sized_and_independent(payload, context):
     for f in time_figs:
         assert f.frame_width > 0 and f.frame_height > 0
         assert all(f.y_range is not g.x_range for g in sky_figs)
+
+
+def test_panels_are_arranged_in_two_rows(payload, context):
+    """Sky panels side by side on top; the two time panels side by side below."""
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    view = SkyPlaneView(context=context, payload=payload, model=model)
+    body = view.panel()
+    rows = [o for o in body.objects if isinstance(o, pn.Row)]
+    assert rows and len(rows[0].objects) == 2, "sky panels are not side by side"
+    assert isinstance(view.components(), pn.Row)
+    assert len(view.components().objects) == 2, "time panels are not side by side"
+    assert isinstance(view.layout()[0], pn.Row), "controls should be a strip above"

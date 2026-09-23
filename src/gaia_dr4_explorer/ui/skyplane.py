@@ -27,6 +27,14 @@ ONE_DIMENSIONAL_NOTE = (
 )
 
 
+#: Legends sit under side-by-side panels, so they must fit within one frame;
+#: the model's full description is in the text above the plots.
+LEGEND_MODEL_LABEL = "model"
+
+#: Space between side-by-side panels, so a colour bar never meets its neighbour.
+PANEL_GAP = (0, 40, 0, 0)
+
+
 def _heading(text: str) -> pn.pane.HTML:
     return pn.pane.HTML(
         f"<div style='font-size:13px;font-weight:600;margin:14px 0 0 0'>{text}</div>")
@@ -102,7 +110,9 @@ class SkyPlaneView(param.Parameterized):
                 self._epochs(pm_removed=pm_removed), self._track(pm_removed=pm_removed),
                 show_rejected=self.show_rejected, show_constraints=self.show_constraints,
                 show_errors=self.show_errors, proper_motion_removed=pm_removed,
-                model_label=self.model_label,
+                model_label=LEGEND_MODEL_LABEL,
+                # One colour bar, on the right-hand panel: the panels share it.
+                colorbar=pm_removed,
             ),
             # No stretch sizing: it overrides the fixed frame the plot needs
             # for equal mas per pixel, and collapsed panel 3 in the browser.
@@ -127,19 +137,21 @@ class SkyPlaneView(param.Parameterized):
     @param.depends("show_model")
     def components(self):
         """Panel 3: Δα* and Δδ against time, measured and modelled."""
-        return pn.Column(*[
-            pn.pane.HoloViews(p) for p in plots.sky_offsets_vs_time(
-                self._epochs(), self._track(), model_label=self.model_label)
+        return pn.Row(*[
+            pn.pane.HoloViews(p, margin=PANEL_GAP) for p in plots.sky_offsets_vs_time(
+                self._epochs(), self._track(), model_label=LEGEND_MODEL_LABEL)
         ])
 
-    def controls(self) -> pn.Column:
+    def controls(self) -> pn.Row:
+        """A horizontal strip, so the plots below can use the full width."""
         names = ["show_constraints", "show_errors", "show_rejected", "constraint_length"]
         if self.model is not None:
             names = ["show_model", *names]
-        return pn.Column(
-            pn.pane.HTML("<b>Sky plane</b>"),
-            pn.Param(self.param, parameters=names, show_name=False),
-            width=300, sizing_mode="fixed", margin=(0, 18, 0, 0),
+        return pn.Row(
+            pn.pane.HTML("<b>Sky plane</b>", margin=(12, 12, 0, 0)),
+            pn.Param(self.param, parameters=names, show_name=False,
+                     default_layout=pn.Row),
+            sizing_mode="stretch_width",
         )
 
     def panel(self, *, extra=None) -> pn.Column:
@@ -167,14 +179,16 @@ class SkyPlaneView(param.Parameterized):
                 f"<br><span style='color:#777;font-size:11px'>{counts}</span></div>"
             ),
             *([extra] if extra is not None else []),
-            _heading("1. On the sky — measured and modelled"),
-            pn.Column(self.sky, sizing_mode="stretch_width"),
-            _heading("2. On the sky — proper motion removed"),
-            pn.Column(self.sky_pm_removed, sizing_mode="stretch_width"),
+            pn.Row(
+                pn.Column(_heading("1. On the sky — measured and modelled"), self.sky,
+                          margin=PANEL_GAP),
+                pn.Column(_heading("2. On the sky — proper motion removed"),
+                          self.sky_pm_removed),
+            ),
             _heading("3. Δα* and Δδ against time"),
-            pn.Column(self.components, sizing_mode="stretch_width"),
+            pn.Column(self.components),
             sizing_mode="stretch_width",
         )
 
-    def layout(self, *, extra=None) -> pn.Row:
-        return pn.Row(self.controls(), self.panel(extra=extra), sizing_mode="stretch_width")
+    def layout(self, *, extra=None) -> pn.Column:
+        return pn.Column(self.controls(), self.panel(extra=extra), sizing_mode="stretch_width")
