@@ -79,3 +79,39 @@ def test_main_view_button_returns_to_the_astrometry_tab():
     tabs = pn.Tabs(("Overview", "a"), ("Astrometry", "b"), ("Sky plane", "c"), active=2)
     show_main_view(pn.Column(tabs))
     assert tabs.active == MAIN_TAB == 1
+
+
+def _sky_figures(view):
+    """The Bokeh figures of the two sky panels, rendered in one document."""
+    import holoviews as hv
+    from bokeh.models import Plot
+
+    hv.extension("bokeh")
+    root = view.layout().get_root()
+    figs = [m for m in root.references() if isinstance(m, Plot)
+            and m.xaxis and "Δα*" in str(m.xaxis[0].axis_label)]
+    return figs
+
+
+def test_sky_panels_do_not_share_ranges(payload, context):
+    """Regression: HoloViews links plots with the same dimension names, so the
+    proper-motion-removed panel inherited the as-observed ranges and HD 114762's
+    parallax ellipse shrank to a dot."""
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    figs = _sky_figures(SkyPlaneView(context=context, payload=payload, model=model))
+    assert len(figs) == 2
+    a, b = figs
+    assert a.x_range is not b.x_range and a.y_range is not b.y_range
+    spans = sorted(abs(f.x_range.end - f.x_range.start) for f in figs)
+    # As observed the track spans ~2900 mas in RA; the parallax ellipse ~55 mas.
+    assert spans[1] > 2500 and spans[0] < 200, spans
+
+
+def test_sky_panels_have_equal_scale_on_both_axes(payload, context):
+    from gaia_dr4_explorer.products.astrometry.plots import SKY_FRAME
+
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    for f in _sky_figures(SkyPlaneView(context=context, payload=payload, model=model)):
+        mx = abs(f.x_range.end - f.x_range.start) / SKY_FRAME[0]
+        my = abs(f.y_range.end - f.y_range.start) / SKY_FRAME[1]
+        assert mx == pytest.approx(my, rel=1e-6), "mas per pixel differs between axes"

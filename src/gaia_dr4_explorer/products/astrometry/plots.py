@@ -351,15 +351,32 @@ def _segments(frame, cols) -> list:
     return [np.array([[a[i], b[i]], [c[i], d[i]]]) for i in np.flatnonzero(ok)]
 
 
-def _padded_range(values, pad: float = 0.06):
-    v = np.asarray(values, dtype="float64")
-    v = v[np.isfinite(v)]
-    if not v.size:
+#: Frame of a sky panel, in screen pixels. Fixed, so that the limits below
+#: can give both axes the same scale in mas per pixel.
+SKY_FRAME = (720, 480)
+
+
+def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
+    """Axis limits with equal mas per pixel on both axes, covering (x, y).
+
+    Bokeh's own aspect constraint disables responsive sizing and can make a
+    panel thousands of pixels wide for a fast-moving star, so the equal scale
+    is imposed through the limits instead.
+
+    Returns
+    -------
+    (xlim, ylim) or None when there is nothing finite to frame.
+    """
+    x = np.asarray(x, dtype="float64")
+    y = np.asarray(y, dtype="float64")
+    ok = np.isfinite(x) & np.isfinite(y)
+    if not ok.any():
         return None
-    lo, hi = float(v.min()), float(v.max())
-    half = max(0.5 * (hi - lo), 0.05)
-    mid = 0.5 * (hi + lo)
-    return mid - half * (1 + pad), mid + half * (1 + pad)
+    x, y = x[ok], y[ok]
+    cx, cy = 0.5 * (x.min() + x.max()), 0.5 * (y.min() + y.max())
+    scale = (1 + pad) * max(np.ptp(x) / frame[0], np.ptp(y) / frame[1], 0.1 / frame[1])
+    hx, hy = 0.5 * scale * frame[0], 0.5 * scale * frame[1]
+    return (cx - hx, cx + hx), (cy - hy, cy + hy)
 
 
 def sky_epochs(
@@ -422,25 +439,25 @@ def sky_epochs(
     if not layers:
         return _empty("No observations to place on the sky")
 
-    xs = [used["dra"]] if len(used) else []
-    ys = [used["ddec"]] if len(used) else []
+    xs = [used["dra"].to_numpy()] if len(used) else []
+    ys = [used["ddec"].to_numpy()] if len(used) else []
     if track is not None:
-        xs.append(track[1])
-        ys.append(track[2])
-    xr = _padded_range(np.concatenate([np.asarray(x) for x in xs])) if xs else None
-    yr = _padded_range(np.concatenate([np.asarray(y) for y in ys])) if ys else None
-    what = "proper motion removed" if proper_motion_removed else "as observed"
+        xs.append(np.asarray(track[1]))
+        ys.append(np.asarray(track[2]))
     opts = dict(
-        responsive=True, height=560, legend_position="top_left",
+        frame_width=SKY_FRAME[0], frame_height=SKY_FRAME[1],
+        legend_position="right", title="",
         xlabel="Δα* [mas]  (from the reference point ra0, dec0)", ylabel="Δδ [mas]",
-        title=f"Gaia epoch astrometry on the sky — {what}",
         invert_xaxis=True,   # RA increases to the left, as on the sky
-        data_aspect=1,
+        # Each panel keeps its own ranges: HoloViews otherwise links every plot
+        # with the same dimension names, so the proper-motion-removed panel
+        # inherited the as-observed ranges and its data shrank to a dot.
+        shared_axes=False,
     )
-    if xr:
-        opts["xlim"] = xr
-    if yr:
-        opts["ylim"] = yr
+    limits = equal_scale_limits(np.concatenate(xs), np.concatenate(ys)) if xs else None
+    if limits:
+        # invert_xaxis flips the drawn direction; the limits stay ascending.
+        opts["xlim"], opts["ylim"] = limits
     return hv.Overlay(layers).opts(**opts)
 
 
