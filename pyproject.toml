@@ -18,6 +18,9 @@ dependencies = [
     "pandas>=2.1",
     "pyarrow>=14",
     "platformdirs>=4.0",
+    # External spectral-archive discovery (TAP, SSA, VO registry, MAST).
+    "pyvo>=1.5",
+    "requests>=2.31",
     # gaiasupdate imports astroquery.gaia at module scope, so it is a base
     # dependency, not a later-phase one.
     "astroquery>=0.4.7",
