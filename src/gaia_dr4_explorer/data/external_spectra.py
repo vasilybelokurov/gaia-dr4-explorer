@@ -191,6 +191,17 @@ class SpectrumRecord:
     size_bytes: int | None = None
     separation_arcsec: float = float("nan")
     note: str = ""
+    #: Archive-internal handle needed to fetch files later (MAST ``obsid``).
+    archive_key: str = ""
+    #: ObsCore/CAOM calibration level: 0-1 raw, 2 calibrated, 3+ derived;
+    #: -1 when the archive does not say.
+    calib_level: int = -1
+
+    @property
+    def is_raw(self) -> bool:
+        """Calibration level 0-1: raw or instrumental data. Shown as a hint only:
+        CfA TDC's extracted echelle spectra are level 1 too."""
+        return 0 <= self.calib_level <= 1
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -297,6 +308,10 @@ class Transport:
     def get_text(self, url: str, params: dict) -> str:
         raise NotImplementedError
 
+    def get_bytes(self, url: str, max_bytes: int) -> bytes:
+        """Download ``url``; raise if it would exceed ``max_bytes``."""
+        raise NotImplementedError
+
 
 class LiveTransport(Transport):
     """Real network access, with a socket timeout on every request.
@@ -387,6 +402,20 @@ class LiveTransport(Transport):
         response.raise_for_status()
         return response.text
 
+    def get_bytes(self, url, max_bytes):
+        with self.session().get(url, stream=True) as response:
+            response.raise_for_status()
+            declared = int(response.headers.get("content-length") or 0)
+            if declared > max_bytes:
+                raise ValueError(f"{declared / 1e6:.0f} MB exceeds the {max_bytes / 1e6:.0f} MB limit")
+            chunks, total = [], 0
+            for chunk in response.iter_content(1 << 20):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(f"download exceeds the {max_bytes / 1e6:.0f} MB limit")
+                chunks.append(chunk)
+            return b"".join(chunks)
+
 
 # --------------------------------------------------------------- the archives
 
@@ -416,8 +445,8 @@ class MastSearch(ArchiveSearch):
     name = "MAST"
     #: IUE positions are commanded pointings, good to tens of arcsec.
     base_radius_arcsec = 40.0
-    COLUMNS = ("obs_collection,instrument_name,obs_id,target_name,s_ra,s_dec,t_min,"
-               "t_exptime,em_min,em_max,dataURL,dataproduct_type,dataRights")
+    COLUMNS = ("obsid,obs_collection,instrument_name,obs_id,target_name,s_ra,s_dec,t_min,"
+               "t_exptime,em_min,em_max,dataURL,dataproduct_type,dataRights,calib_level")
 
     def request(self, position, radius_arcsec) -> dict:
         return {
@@ -443,7 +472,7 @@ class ObsCoreSearch(ArchiveSearch):
 
     COLUMNS = ("obs_collection, instrument_name, obs_id, target_name, s_ra, s_dec, t_min, "
                "t_exptime, em_min, em_max, em_res_power, access_url, access_format, "
-               "access_estsize")
+               "access_estsize, calib_level")
 
     def __init__(self, transport, *, name: str, url: str, where: str = "") -> None:
         super().__init__(transport)
@@ -477,7 +506,8 @@ class CadcSearch(ArchiveSearch):
             "SELECT o.collection, o.instrument_name, o.observationID, o.target_name, "
             "o.targetPosition_coordinates_cval1 AS ra, o.targetPosition_coordinates_cval2 AS dec, "
             "p.productID, p.time_bounds_lower, p.time_exposure, p.energy_bounds_lower, "
-            "p.energy_bounds_upper, p.energy_resolvingPower, p.dataRelease, p.publisherID "
+            "p.energy_bounds_upper, p.energy_resolvingPower, p.dataRelease, p.publisherID, "
+            "p.calibrationLevel "
             "FROM caom2.Observation o JOIN caom2.Plane p ON o.obsID = p.obsID "
             "WHERE p.dataProductType = 'spectrum' AND 1=INTERSECTS(CIRCLE('ICRS', "
             f"{position.ra_deg}, {position.dec_deg}, {radius_arcsec / 3600.0}), p.position_bounds)"
@@ -745,6 +775,7 @@ def parse_mast(response: dict) -> list[SpectrumRecord]:
             dec_deg=_f(d.get("s_dec")), mjd=_f(d.get("t_min")), exptime_s=_f(d.get("t_exptime")),
             wl_min_nm=_f(d.get("em_min")), wl_max_nm=_f(d.get("em_max")),
             access_url=url, access_format="application/fits" if url else "",
+            archive_key=_s(d.get("obsid")), calib_level=_i(d.get("calib_level")),
         ))
     return out
 
@@ -770,6 +801,7 @@ def parse_obscore(table, *, archive: str) -> list[SpectrumRecord]:
             resolving_power=resolving_power(_f(_get(row, "em_res_power")), lo, hi),
             access_url=_s(_get(row, "access_url")), access_format=_s(_get(row, "access_format")),
             size_bytes=int(size_b[i]) if np.isfinite(size_b[i]) else None,
+            calib_level=_i(_get(row, "calib_level")),
         ))
     return out
 
@@ -794,6 +826,7 @@ def parse_caom2(table, *, now: datetime | None = None) -> list[SpectrumRecord]:
             resolving_power=_f(_get(row, "energy_resolvingPower")),
             access_url=CADC_DATALINK + pid if pid else "",
             access_format="application/x-votable+xml;content=datalink" if pid else "",
+            calib_level=_i(_get(row, "calibrationLevel")),
         ))
     return out
 
@@ -929,6 +962,11 @@ def _f(x) -> float:
         return v
     except (TypeError, ValueError, IndexError):
         return float("nan")
+
+
+def _i(x) -> int:
+    v = _f(x)
+    return int(v) if np.isfinite(v) else -1
 
 
 def _s(x) -> str:
