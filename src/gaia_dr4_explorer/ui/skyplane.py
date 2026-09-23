@@ -44,6 +44,11 @@ SKY_PANEL_WIDTH_WITH_COLORBAR = SKY_PANEL_WIDTH + _COLORBAR_PX
 TIME_PANEL_WIDTH = plots.SKY_FRAME[0] + _AXES_PX
 
 
+def _checkbox_width(name: str) -> int:
+    """Room for the label and the box, ~7 px per character at the UI font."""
+    return 40 + 7 * len(SkyPlaneView.param[name].label)
+
+
 def _heading(text: str) -> pn.pane.HTML:
     return pn.pane.HTML(
         f"<div style='font-size:13px;font-weight:600;margin:14px 0 0 0'>{text}</div>")
@@ -153,15 +158,24 @@ class SkyPlaneView(param.Parameterized):
         ], flex_wrap="wrap")
 
     def controls(self) -> pn.FlexBox:
-        """A horizontal strip that wraps, so the plots below get the full width."""
-        names = ["show_constraints", "show_errors", "show_rejected", "constraint_length"]
+        """One wrapping line of controls, so the plots below get the screen.
+
+        Widgets are built individually with widths that fit their labels:
+        ``pn.Param`` gives each widget the full row and stacks them.
+        """
+        checks = ["show_constraints", "show_errors", "show_rejected"]
         if self.model is not None:
-            names = ["show_model", *names]
+            checks = ["show_model", *checks]
+        widgets = [
+            pn.widgets.Checkbox.from_param(self.param[name], width=_checkbox_width(name))
+            for name in checks
+        ]
+        widgets.append(pn.widgets.FloatSlider.from_param(
+            self.param.constraint_length, width=280))
         return pn.FlexBox(
-            pn.pane.HTML("<b>Sky plane</b>", margin=(12, 12, 0, 0)),
-            pn.Param(self.param, parameters=names, show_name=False,
-                     default_layout=pn.FlexBox),
-            flex_wrap="wrap", sizing_mode="stretch_width",
+            pn.pane.HTML("<b>Sky plane</b>", margin=(8, 12, 0, 5)),
+            *widgets,
+            flex_wrap="wrap", align_items="center", sizing_mode="stretch_width",
         )
 
     def panel(self, *, extra=None) -> pn.Column:

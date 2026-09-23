@@ -48,7 +48,8 @@ def test_data_view_needs_no_model_and_keeps_rejected_rows(payload, context):
     assert len(view.base) == n_finite
     assert (~view.base["used"]).sum() > 0
     assert view._track() is None
-    assert "show_model" not in view.controls()[1].parameters
+    names = [getattr(w, "name", "") for w in view.controls().objects]
+    assert "Overplot the model track" not in names
     view.sky()
     # Without a model there is no proper motion to remove: a note, not a plot.
     assert isinstance(view.sky_pm_removed(), pn.pane.HTML)
@@ -156,3 +157,17 @@ def test_panels_are_arranged_in_two_rows(payload, context):
     assert isinstance(comps, pn.FlexBox) and len(comps.objects) == 2
     assert comps.flex_wrap == "wrap"
     assert isinstance(view.layout()[0], pn.FlexBox), "controls should be a strip above"
+
+
+def test_sky_controls_are_one_line_of_individually_sized_widgets(payload, context):
+    """Regression: pn.Param stacked the checkboxes one per line."""
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    controls = SkyPlaneView(context=context, payload=payload, model=model).controls()
+    assert controls.flex_wrap == "wrap"
+    boxes = [w for w in controls.objects if isinstance(w, pn.widgets.Checkbox)]
+    assert [b.name for b in boxes] == [
+        "Overplot the model track", "Show 1-D constraint lines",
+        "Show along-scan ±1σ bars", "Show observations rejected by AGIS"]
+    assert all(b.width and b.width < 320 for b in boxes)
+    # The four checkboxes fit in one line of the ~1090 px pane at 1512 px.
+    assert sum(b.width for b in boxes) < 1000
