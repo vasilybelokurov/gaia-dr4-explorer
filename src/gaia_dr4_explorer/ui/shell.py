@@ -6,12 +6,7 @@ import panel as pn
 
 from gaia_dr4_explorer.data.catalog import catalog
 from gaia_dr4_explorer.products import registry
-from gaia_dr4_explorer.ui.components import (
-    MAIN_TAB,
-    main_view_button,
-    release_badge,
-    show_main_view,
-)
+from gaia_dr4_explorer.ui.components import object_tabs, release_badge
 from gaia_dr4_explorer.ui.fit import FitView
 from gaia_dr4_explorer.ui.overview import overview_panel
 from gaia_dr4_explorer.ui.raw_table import raw_panel
@@ -68,7 +63,6 @@ def build_app(
     copy_button = pn.widgets.Button(name="Copy source_id", button_type="default", width=140)
     status = pn.pane.HTML("")
     header_label = pn.pane.HTML("")
-    main_button = main_view_button()
     body = pn.Column(sizing_mode="stretch_width")
 
     def render() -> None:
@@ -109,10 +103,7 @@ def build_app(
         # Open on the epoch data itself.  The overview is a summary; landing
         # there means the first thing a user sees of an epoch-astrometry
         # explorer contains no epoch astrometry.
-        body.objects = [
-            main_button,
-            pn.Tabs(*tabs, dynamic=True, sizing_mode="stretch_width", active=MAIN_TAB),
-        ]
+        body.objects = [object_tabs(*tabs, dynamic=True, sizing_mode="stretch_width")]
 
     def on_select(event) -> None:
         sid = int(event.new)
@@ -167,7 +158,6 @@ def build_app(
     selector.param.watch(on_select, "value")
     id_input.param.watch(on_id_input, "value")
     state.param.watch(on_state_source_id, "source_id")
-    main_button.on_click(lambda _event: show_main_view(body))
     reload_button.on_click(on_reload)
     copy_button.on_click(on_copy)
 

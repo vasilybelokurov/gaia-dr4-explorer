@@ -10,7 +10,7 @@ from gaia_dr4_explorer.data import PreReleaseProvider
 from gaia_dr4_explorer.data.catalog import reference_fits
 from gaia_dr4_explorer.domain import SourceContext, SourceKey
 from gaia_dr4_explorer.products.astrometry import normalize_epoch_astrometry, skyplane
-from gaia_dr4_explorer.ui.components import MAIN_TAB, show_main_view
+from gaia_dr4_explorer.ui.components import MAIN_VIEW_LABEL, object_tabs
 from gaia_dr4_explorer.ui.skyplane import SkyPlaneView
 
 pytestmark = pytest.mark.integration
@@ -75,10 +75,13 @@ def test_model_overlay_and_proper_motion_removal(payload, context):
     view.components()
 
 
-def test_main_view_button_returns_to_the_astrometry_tab():
-    tabs = pn.Tabs(("Overview", "a"), ("Astrometry", "b"), ("Sky plane", "c"), active=2)
-    show_main_view(pn.Column(tabs))
-    assert tabs.active == MAIN_TAB == 1
+def test_main_view_is_the_first_tab_and_returns_to_astrometry():
+    tabs = object_tabs(("Overview", "a"), ("Astrometry", "b"), ("Sky plane", "c"))
+    assert tabs._names[0] == MAIN_VIEW_LABEL
+    assert tabs.active == 2, "opens on Astrometry"
+    tabs.active = 3          # the user goes to the sky plane...
+    tabs.active = 0          # ...and picks "Main view"
+    assert tabs.active == 2
 
 
 def _sky_figures(view):

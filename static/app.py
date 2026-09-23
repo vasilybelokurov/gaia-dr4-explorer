@@ -30,13 +30,7 @@ from gaia_dr4_explorer.ui import context as context_ui
 from gaia_dr4_explorer.ui import photometry as photometry_ui
 from gaia_dr4_explorer.ui import spectra as spectra_ui
 from gaia_dr4_explorer.ui.astrometry import AstrometryView
-from gaia_dr4_explorer.ui.components import (
-    MAIN_TAB,
-    caveat,
-    main_view_button,
-    release_badge,
-    show_main_view,
-)
+from gaia_dr4_explorer.ui.components import caveat, object_tabs, release_badge
 from gaia_dr4_explorer.ui.overview import overview_panel
 
 pn.extension("tabulator", sizing_mode="stretch_width")
@@ -169,7 +163,7 @@ def build(source_id):
         except Exception as exc:
             tabs.append((title, pn.pane.HTML(
                 f"<div style='color:#c0392b'>Could not load {title}: {exc}</div>")))
-    return pn.Tabs(*tabs, dynamic=True, active=MAIN_TAB)
+    return object_tabs(*tabs, dynamic=True)
 
 
 options = {
@@ -179,8 +173,6 @@ default = next((s for s in PREFERRED if s in SOURCE_IDS), SOURCE_IDS[0])
 selector = pn.widgets.Select(name="Source", options=options, value=default)
 body = pn.Column(build(default))
 header = pn.pane.HTML("")
-main_button = main_view_button()
-main_button.on_click(lambda _event: show_main_view(body))
 
 
 def on_select(event):
@@ -191,7 +183,7 @@ def on_select(event):
         f"<span style='font-size:15px'><b>{name}</b>"
         f"<span style='color:#888'> &nbsp;{sid}</span></span>"
     )
-    body.objects = [main_button, build(sid)]
+    body.objects = [build(sid)]
 
 
 selector.param.watch(on_select, "value")

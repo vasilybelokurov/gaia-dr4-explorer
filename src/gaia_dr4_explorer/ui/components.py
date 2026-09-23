@@ -17,24 +17,35 @@ PROVENANCE_LABELS = {
 }
 
 
-#: Index of the per-object main view -- the epoch astrometry tab the app opens
-#: on. The overview is a summary; the main view is the data.
+#: Index of the per-object main view among the object's own tabs -- the epoch
+#: astrometry tab the app opens on. The overview is a summary; the main view
+#: is the data.
 MAIN_TAB = 1
 
-
-def main_view_button() -> pn.widgets.Button:
-    """A header button that returns to the current object's main view."""
-    return pn.widgets.Button(
-        name="↩ Main view", button_type="light", width=120,
-        description="Back to this object's epoch astrometry tab",
-    )
+#: Label of the pseudo-tab that returns to the main view.
+MAIN_VIEW_LABEL = "↩ Main view"
 
 
-def show_main_view(body: pn.Column) -> None:
-    """Switch the object's tab set in ``body`` back to the main view."""
-    for obj in body.objects:
-        if isinstance(obj, pn.Tabs):
-            obj.active = MAIN_TAB
+def object_tabs(*tabs, main: int = MAIN_TAB, **params) -> pn.Tabs:
+    """The object's tabs, led by a "Main view" entry in the same row.
+
+    A tab header cannot hold a button, so "Main view" is the first tab: picking
+    it switches straight back to the main view, which is where it opens.
+
+    Parameters
+    ----------
+    *tabs : (title, content) pairs
+    main : int
+        Index of the main view within ``tabs``.
+    """
+    t = pn.Tabs((MAIN_VIEW_LABEL, pn.Spacer(height=0)), *tabs, active=main + 1, **params)
+
+    def back(event) -> None:
+        if event.new == 0:
+            t.active = main + 1
+
+    t.param.watch(back, "active")
+    return t
 
 
 def provenance_badge(kind: str) -> pn.pane.HTML:
