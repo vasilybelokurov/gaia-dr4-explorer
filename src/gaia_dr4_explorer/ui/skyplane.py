@@ -34,6 +34,15 @@ LEGEND_MODEL_LABEL = "model"
 #: Space between side-by-side panels, so a colour bar never meets its neighbour.
 PANEL_GAP = (0, 40, 0, 0)
 
+#: Widths of the panel containers, px. A FlexBox item without a width fills
+#: the row and pushes its neighbour below, so each gets frame + axes (+ the
+#: colour bar on the right-hand sky panel).
+_AXES_PX = 90    # measured: figure width = frame + 89 px
+_COLORBAR_PX = 90    # measured: + 89 px for the colour bar
+SKY_PANEL_WIDTH = plots.SKY_FRAME[0] + _AXES_PX
+SKY_PANEL_WIDTH_WITH_COLORBAR = SKY_PANEL_WIDTH + _COLORBAR_PX
+TIME_PANEL_WIDTH = plots.SKY_FRAME[0] + _AXES_PX
+
 
 def _heading(text: str) -> pn.pane.HTML:
     return pn.pane.HTML(
@@ -138,7 +147,8 @@ class SkyPlaneView(param.Parameterized):
     def components(self):
         """Panel 3: Δα* and Δδ against time, measured and modelled."""
         return pn.FlexBox(*[
-            pn.pane.HoloViews(p, margin=PANEL_GAP) for p in plots.sky_offsets_vs_time(
+            pn.pane.HoloViews(p, margin=PANEL_GAP, width=TIME_PANEL_WIDTH)
+            for p in plots.sky_offsets_vs_time(
                 self._epochs(), self._track(), model_label=LEGEND_MODEL_LABEL)
         ], flex_wrap="wrap")
 
@@ -184,9 +194,9 @@ class SkyPlaneView(param.Parameterized):
             # rather than shrink or run off the edge.
             pn.FlexBox(
                 pn.Column(_heading("1. On the sky — measured and modelled"), self.sky,
-                          margin=PANEL_GAP),
+                          margin=PANEL_GAP, width=SKY_PANEL_WIDTH),
                 pn.Column(_heading("2. On the sky — proper motion removed"),
-                          self.sky_pm_removed),
+                          self.sky_pm_removed, width=SKY_PANEL_WIDTH_WITH_COLORBAR),
                 flex_wrap="wrap",
             ),
             _heading("3. Δα* and Δδ against time"),

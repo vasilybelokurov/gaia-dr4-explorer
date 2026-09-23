@@ -353,7 +353,7 @@ def _segments(frame, cols) -> list:
 
 #: Frame of a sky panel, in screen pixels. Fixed, so that the limits below
 #: can give both axes the same scale in mas per pixel.
-SKY_FRAME = (400, 370)
+SKY_FRAME = (360, 340)
 
 
 def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
