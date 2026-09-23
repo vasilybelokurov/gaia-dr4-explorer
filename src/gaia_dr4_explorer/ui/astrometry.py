@@ -117,23 +117,33 @@ class AstrometryView(param.Parameterized):
             "source, so filtering on it can do nothing."
             for name, value in self._constant.items()
         ]
-        items = [
-            pn.pane.HTML("<b>Filters</b>"),
+        # Diagnostic filters live in a collapsed section, out of the main view:
+        # SM samples are never used by AGIS (0 of 911 across the prerelease),
+        # so "Rejected" already covers them, and AF1-AF9 behave alike.
+        more = [
             pn.Param(
-                self.param,
-                parameters=["show_used", "show_rejected", "ccds", "max_sigma"],
+                self.param, parameters=["ccds"],
                 widgets={"ccds": {"type": pn.widgets.MultiChoice, "height": 120}},
                 show_name=False,
             ),
         ]
         if disabled_notes:
-            items.append(
+            more.append(
                 pn.pane.HTML(
                     '<div style="font-size:11px;color:#777;border-top:1px solid #eee;'
-                    'padding-top:6px;width:280px;word-wrap:break-word;">'
+                    'padding-top:6px;width:260px;word-wrap:break-word;">'
                     + "<br>".join(disabled_notes) + "</div>"
                 )
             )
+        items = [
+            pn.pane.HTML("<b>Filters</b>"),
+            pn.Param(
+                self.param,
+                parameters=["show_used", "show_rejected", "max_sigma"],
+                show_name=False,
+            ),
+            pn.Card(*more, title="More filters", collapsed=True, width=280),
+        ]
         return pn.Column(*items, width=300, sizing_mode="fixed", margin=(0, 18, 0, 0))
 
     def panel(self) -> pn.Column:

@@ -222,3 +222,16 @@ def test_no_plot_has_a_fixed_pixel_width(loaded):
             assert "width" not in opts, (
                 f"{type(element).__name__} sets a fixed width={opts.get('width')}"
             )
+
+
+def test_strip_filter_is_out_of_the_main_view(loaded):
+    """The focal-plane strip selector sits in a collapsed "More filters" card."""
+    import panel as pn
+
+    state, _, payload = loaded
+    controls = AstrometryView(context=state.context(), payload=payload).controls()
+    main_params = [o for o in controls.objects if isinstance(o, pn.Param)]
+    assert main_params and all("ccds" not in p.parameters for p in main_params)
+    cards = [o for o in controls.objects if isinstance(o, pn.Card)]
+    assert len(cards) == 1 and cards[0].collapsed and cards[0].title == "More filters"
+    assert "ccds" in cards[0].objects[0].parameters
