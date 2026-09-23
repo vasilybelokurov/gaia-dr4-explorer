@@ -41,7 +41,7 @@ where = ["src"]
 # Everything in resources/ must travel in the wheel: the browser build has no
 # repository checkout, and the Gaia archive sends no CORS header, so the DR3
 # product bundle is the only way that build can show photometry or spectra.
-"gaia_dr4_explorer.resources" = ["*.csv", "*.zip"]
+"gaia_dr4_explorer.resources" = ["*.csv", "*.zip", "*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

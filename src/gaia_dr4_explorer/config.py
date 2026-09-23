@@ -95,6 +95,10 @@ class CacheLayout:
     def normalized(self, release: str, source_id: int) -> Path:
         return self.root / "normalized" / _slug(release) / str(source_id)
 
+    def external_spectra(self, release: str, source_id: int) -> Path:
+        """Saved archive search for one source: metadata only, regenerable."""
+        return self.root / "external_spectra" / _slug(release) / f"{int(source_id)}.json"
+
     def ensure(self, path: Path) -> Path:
         """Create *path* if needed and return it."""
         path.mkdir(parents=True, exist_ok=True)

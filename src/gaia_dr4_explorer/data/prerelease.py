@@ -63,6 +63,11 @@ class PreReleaseProvider:
     # ------------------------------------------------------------------ paths
 
     @property
+    def config(self) -> AppConfig:
+        """The configuration this provider was built with (read-only)."""
+        return self._config
+
+    @property
     def zip_path(self) -> Path:
         """Location of the cached archive."""
         if self._config.local_prerelease_zip is not None:

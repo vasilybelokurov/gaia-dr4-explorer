@@ -97,7 +97,11 @@ def build_app(
             tabs.append(("Source fit", _static_fit_notice(context)))
         tabs.append(("Sky plane", _sky_tab(state, payload, context, allow_fit=allow_fit)))
         tabs.append(("Photometry", _product_tab(state, photometry, context)))
-        tabs.append(("Spectra", _product_tab(state, spectra, context)))
+        tabs.append(("Spectra", pn.Column(
+            _product_tab(state, spectra, context),
+            _external_spectra(context, provider, live=True),
+            sizing_mode="stretch_width",
+        )))
         tabs.append(("Context", _product_tab(state, context_plugin, context)))
         tabs.append(("Raw / metadata", raw_panel(context, payload, astrometry)))
         # Open on the epoch data itself.  The overview is a summary; landing
@@ -237,6 +241,27 @@ def _sky_tab(state, payload, context, *, allow_fit: bool) -> pn.Column:
     button.on_click(draw)
     show(extra=button)
     return out
+
+
+def _external_spectra(context, provider, *, live: bool) -> pn.Column:
+    """The "Spectra in other archives" section of the Spectra tab."""
+    from gaia_dr4_explorer.data import external_spectra as xs
+    from gaia_dr4_explorer.data.bundled import BundledProductProvider
+    from gaia_dr4_explorer.data.catalog import reference_fits
+    from gaia_dr4_explorer.ui.external_spectra import external_spectra_section
+
+    config = getattr(provider, "config", None)
+    archives = xs.ExternalSpectraProvider(
+        allow_network=getattr(config, "allow_network", True),
+        cache_dir=getattr(config, "cache_dir", None), release=context.release)
+    values = reference_fits().get(context.source_id)
+    live_search = None
+    if live and values is not None:
+        name = BundledProductProvider().simbad().get(context.source_id, {}).get("main_id", "")
+        position = xs.position_from_reference(values, name=name)
+        live_search = lambda: archives.search(position, source_id=context.source_id)  # noqa: E731
+    latest, origin = archives.latest(context.source_id)
+    return external_spectra_section(latest, live_search, origin=origin)
 
 
 def _product_tab(state, plugin, context) -> pn.Column:

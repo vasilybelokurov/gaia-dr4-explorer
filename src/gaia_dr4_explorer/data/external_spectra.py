@@ -242,13 +242,34 @@ class SearchReport:
         """True only if every archive answered (found or none)."""
         return all(r.status in (SearchStatus.FOUND, SearchStatus.NONE) for r in self.results)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Plain data, with missing values (NaN) as None."""
+        return _nan_to_none({"position": asdict(self.position), "searched_at": self.searched_at,
+                             "results": [r.as_dict() for r in self.results]})
+
     def to_json(self) -> str:
-        """Strict JSON: missing values (NaN) become null, never ``NaN``."""
-        return json.dumps(
-            _nan_to_none({"position": asdict(self.position), "searched_at": self.searched_at,
-                          "results": [r.as_dict() for r in self.results]}),
-            default=_json_default, indent=1, allow_nan=False,
-        )
+        """Strict JSON: missing values become null, never ``NaN``."""
+        return json.dumps(self.to_dict(), default=_json_default, indent=1, allow_nan=False)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SearchReport:
+        """Inverse of :meth:`to_dict`; nulls become NaN (or None for sizes) again."""
+        pos = SkyPosition(**{k: _nan_if_none(v) if k != "name" else (v or "")
+                             for k, v in d["position"].items()})
+        results = []
+        for r in d["results"]:
+            records = tuple(
+                SpectrumRecord(**{k: (v if k == "size_bytes" else _nan_if_none(v))
+                                  for k, v in rec.items()})
+                for rec in r.get("records", [])
+            )
+            results.append(ArchiveResult(
+                archive=r["archive"], status=SearchStatus(r["status"]), records=records,
+                radius_arcsec=_nan_if_none(r.get("radius_arcsec")), query=r.get("query", ""),
+                error=r.get("error", ""), elapsed_s=_nan_if_none(r.get("elapsed_s")),
+                searched_at=r.get("searched_at", ""),
+            ))
+        return cls(pos, tuple(results), d.get("searched_at", ""))
 
 
 # ------------------------------------------------------------------ transport
@@ -325,9 +346,19 @@ class LiveTransport(Transport):
         import pyvo
         from astropy.coordinates import SkyCoord
 
-        res = pyvo.dal.SSAService(url, session=self.session()).search(
-            pos=SkyCoord(ra, dec, unit="deg"), diameter=diameter_deg * u.deg, maxrec=100000
-        )
+        try:
+            res = pyvo.dal.SSAService(url, session=self.session()).search(
+                pos=SkyCoord(ra, dec, unit="deg"), diameter=diameter_deg * u.deg, maxrec=100000
+            )
+        except pyvo.dal.DALFormatError:
+            # PolarBase answers an empty search with QUERY_STATUS="OK" and no
+            # TABLE, which pyvo rejects as malformed. Re-read the raw answer and
+            # call it empty only if the service itself said OK.
+            raw = self.session().get(url, params={
+                "REQUEST": "queryData", "POS": f"{ra},{dec}", "SIZE": f"{diameter_deg}"}).text
+            if ssa_says_empty(raw):
+                return [], []
+            raise
         fields = []
         for name in res.fieldnames:
             d = res.getdesc(name)
@@ -582,6 +613,119 @@ def search_external_spectra(
     return SearchReport(position, tuple(results), started)
 
 
+# ------------------------------------------------------ snapshot and provider
+
+#: Search results for the prerelease sources, shipped for the browser build
+#: (which cannot query archives) and as a starting point for the desktop app.
+SNAPSHOT_RESOURCE = "external_spectra.json"
+
+
+def position_from_reference(values: dict[str, float], *, name: str = "") -> SkyPosition:
+    """Search position from a row of the prerelease reference table.
+
+    Uses the transit reference point (ra0, dec0) at J2017.5 and the refitted
+    proper motion. These are recomputed values, used here only to size the
+    search and to follow the star's path -- never shown as catalogue values.
+    """
+    return SkyPosition(
+        ra_deg=values["ra0_deg"], dec_deg=values["dec0_deg"], epoch_jyear=2017.5,
+        pmra_masyr=values.get("fit_pmra_mas_yr", float("nan")),
+        pmdec_masyr=values.get("fit_pmdec_mas_yr", float("nan")),
+        name=name,
+    )
+
+
+def build_snapshot(
+    positions: dict[int, SkyPosition],
+    search: Callable[[SkyPosition], SearchReport] = search_external_spectra,
+) -> dict[str, Any]:
+    """Run ``search`` for every source; return the JSON-ready snapshot."""
+    return {
+        "created_at": _utcnow(),
+        "note": "Metadata only: what each archive listed near each source. "
+                "Regenerate with `gaia-dr4-explorer snapshot-spectra`.",
+        "sources": {str(sid): search(pos).to_dict() for sid, pos in sorted(positions.items())},
+    }
+
+
+class ExternalSpectraProvider:
+    """Serves archive-search results: a saved search, the shipped snapshot, or
+    a live search. UI code calls this; it never queries an archive itself
+    (CLAUDE.md invariant 8).
+
+    Parameters
+    ----------
+    cache_dir : Path, optional
+        Where live searches are saved, so a source searched once shows its
+        result again without a new search. Keyed by release and source_id
+        (CLAUDE.md invariant 1). Without it nothing is saved.
+    release : str
+        Gaia release the source_ids belong to.
+    """
+
+    def __init__(self, *, allow_network: bool = True, snapshot: dict | None = None,
+                 search: Callable[..., SearchReport] = search_external_spectra,
+                 cache_dir=None, release: str = "Gaia DR4_RC3") -> None:
+        self.allow_network = allow_network
+        self._snapshot = snapshot
+        self._search = search
+        self._cache_dir = cache_dir
+        self.release = release
+
+    def snapshot(self) -> dict:
+        if self._snapshot is None:
+            from importlib.resources import files
+
+            res = files("gaia_dr4_explorer.resources") / SNAPSHOT_RESOURCE
+            self._snapshot = json.loads(res.read_text()) if res.is_file() else {"sources": {}}
+        return self._snapshot
+
+    def bundled(self, source_id: int) -> SearchReport | None:
+        """The shipped search for this source, or None when there is none."""
+        d = self.snapshot().get("sources", {}).get(str(int(source_id)))
+        return SearchReport.from_dict(d) if d else None
+
+    def _path(self, source_id: int):
+        if self._cache_dir is None:
+            return None
+        from gaia_dr4_explorer.config import CacheLayout
+
+        return CacheLayout(self._cache_dir).external_spectra(self.release, source_id)
+
+    def saved(self, source_id: int) -> SearchReport | None:
+        """The last live search saved for this source, if any."""
+        path = self._path(source_id)
+        if path is None or not path.is_file():
+            return None
+        try:
+            return SearchReport.from_dict(json.loads(path.read_text()))
+        except (ValueError, KeyError, TypeError):
+            return None           # an unreadable cache entry is just absent
+
+    def latest(self, source_id: int) -> tuple[SearchReport | None, str]:
+        """The newest result available without searching, and where it came from."""
+        saved = self.saved(source_id)
+        if saved is not None:
+            return saved, "saved"
+        bundled = self.bundled(source_id)
+        return (bundled, "shipped") if bundled is not None else (None, "")
+
+    def search(self, position: SkyPosition, *, source_id: int | None = None,
+               **kwargs) -> SearchReport:
+        """A live search now, saved for next time when ``source_id`` is given.
+
+        Reported as skipped (and not saved) when the network is off.
+        """
+        report = self._search(position, allow_network=self.allow_network, **kwargs)
+        path = self._path(source_id) if source_id is not None else None
+        if path is not None and self.allow_network:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(report.to_json())
+            tmp.replace(path)
+        return report
+
+
 # -------------------------------------------------------------------- parsers
 
 
@@ -738,6 +882,14 @@ def parse_elodie(content: str) -> list[SpectrumRecord]:
     return out
 
 
+def ssa_says_empty(votable_text: str) -> bool:
+    """True for an SSA answer with QUERY_STATUS OK and no result table."""
+    import re
+
+    ok = re.search(r'name="QUERY_STATUS"\s+value="OK"', votable_text) is not None
+    return ok and "<TABLE" not in votable_text.upper()
+
+
 def resolving_power(value: float, lo_nm: float, hi_nm: float) -> float:
     """Dimensionless R. Some services (CfA TDC) fill ``em_res_power`` with a
     resolution element in metres (~1e-11); such values become lambda_mid / dlambda."""
@@ -883,6 +1035,10 @@ def _nan_to_none(obj):
     return obj
 
 
+def _nan_if_none(v):
+    return float("nan") if v is None else v
+
+
 def _json_default(obj):
     if isinstance(obj, float) and not np.isfinite(obj):
         return None
@@ -892,10 +1048,12 @@ def _json_default(obj):
 
 
 __all__ = [
-    "ArchiveResult", "ArchiveSearch", "CadcSearch", "ElodieSearch", "LiveTransport",
+    "ArchiveResult", "ArchiveSearch", "CadcSearch", "ElodieSearch", "ExternalSpectraProvider",
+    "LiveTransport", "SNAPSHOT_RESOURCE", "build_snapshot", "position_from_reference",
     "MastSearch", "ObsCoreSearch", "SearchReport", "SearchStatus", "SkyPosition",
     "SpectrumRecord", "SsaSearch", "Transport", "default_searches", "parse_caom2",
     "parse_elodie", "parse_mast", "parse_obscore", "parse_ssa", "resolving_power",
+    "ssa_says_empty",
     "search_external_spectra",
 ]
 

@@ -22,6 +22,7 @@ from _bundled_data import prerelease_zip_bytes
 from gaia_dr4_explorer import __version__
 from gaia_dr4_explorer.data.bundled import BundledProductProvider
 from gaia_dr4_explorer.data.catalog import catalog, reference_fits
+from gaia_dr4_explorer.data.external_spectra import ExternalSpectraProvider
 from gaia_dr4_explorer.domain import SourceContext, SourceKey
 from gaia_dr4_explorer.domain.product import ProductState
 from gaia_dr4_explorer.products import registry
@@ -31,6 +32,7 @@ from gaia_dr4_explorer.ui import photometry as photometry_ui
 from gaia_dr4_explorer.ui import spectra as spectra_ui
 from gaia_dr4_explorer.ui.astrometry import AstrometryView
 from gaia_dr4_explorer.ui.components import caveat, object_tabs, release_badge
+from gaia_dr4_explorer.ui.external_spectra import external_spectra_section
 from gaia_dr4_explorer.ui.overview import overview_panel
 
 pn.extension("tabulator", sizing_mode="stretch_width")
@@ -58,6 +60,7 @@ RELEASE = str(TABLE.meta["votable_params"].get("release", "Gaia DR4_RC3"))
 SOURCE_IDS = sorted({int(v) for v in TABLE["source_id"]})
 ENTRIES = catalog()
 FITS = reference_fits()
+EXTERNAL = ExternalSpectraProvider(allow_network=False)
 
 # The Gaia archive sends no CORS header, so a page cannot reach it. The DR3
 # products for these twelve sources ship with the package instead.
@@ -156,13 +159,19 @@ def build(source_id):
     for plugin, title, module in PRODUCT_TABS:
         descriptor = plugin.discover(context)
         if descriptor.state is not ProductState.AVAILABLE:
-            tabs.append((title, module.unavailable_panel(descriptor)))
-            continue
-        try:
-            tabs.append((title, plugin.build_view(context, plugin.load(context)).panel()))
-        except Exception as exc:
-            tabs.append((title, pn.pane.HTML(
-                f"<div style='color:#c0392b'>Could not load {title}: {exc}</div>")))
+            content = module.unavailable_panel(descriptor)
+        else:
+            try:
+                content = plugin.build_view(context, plugin.load(context)).panel()
+            except Exception as exc:
+                content = pn.pane.HTML(
+                    f"<div style='color:#c0392b'>Could not load {title}: {exc}</div>")
+        if title == "Spectra":
+            # The archive search is shipped with the page: a browser cannot
+            # query the archives, but its file links open directly.
+            content = pn.Column(content, external_spectra_section(
+                EXTERNAL.bundled(int(source_id))))
+        tabs.append((title, content))
     return object_tabs(*tabs, dynamic=True)
 
 

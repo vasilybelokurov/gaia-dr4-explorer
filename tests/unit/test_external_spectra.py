@@ -326,3 +326,47 @@ def test_no_network_at_import():
     assert after == before, "importing the module must not import network libraries"
 
 
+
+
+def test_an_ok_ssa_answer_without_a_table_is_empty_not_a_failure():
+    """PolarBase's empty answer (captured 2026-09-23)."""
+    empty = ('<VOTABLE version="1.1"><RESOURCE type="results">'
+             '<INFO name="QUERY_STATUS" value="OK">Successful Search</INFO></RESOURCE></VOTABLE>')
+    assert xs.ssa_says_empty(empty)
+    assert not xs.ssa_says_empty(empty.replace('value="OK"', 'value="ERROR"'))
+    assert not xs.ssa_says_empty(empty.replace("</RESOURCE>", "<TABLE></TABLE></RESOURCE>"))
+
+
+def test_report_round_trips_through_json():
+    import json
+
+    fake = FakeTransport(tap={xs.ESO_TAP: eso_table()}, fail={xs.CFA_TAP})
+    report = xs.search_external_spectra(HD114762, [
+        xs.ObsCoreSearch(fake, name="ESO", url=xs.ESO_TAP),
+        xs.ObsCoreSearch(fake, name="CfA TDC", url=xs.CFA_TAP)], timeout_s=10)
+    back = xs.SearchReport.from_dict(json.loads(report.to_json()))
+    assert [r.status for r in back.results] == [r.status for r in report.results]
+    a, b = back.records()[0], report.records()[0]
+    # Field by field: NaN != NaN, so dataclass equality cannot be used.
+    for k, v in b.as_dict().items():
+        w = a.as_dict()[k]
+        assert (w == v) or (isinstance(v, float) and math.isnan(v) and math.isnan(w)), k
+    assert back.results[1].error == report.results[1].error
+    assert math.isnan(back.records()[0].snr)
+
+
+def test_snapshot_covers_every_source_it_is_given():
+    fake = FakeTransport(tap={xs.ESO_TAP: eso_table()})
+
+    def search(pos):
+        return xs.search_external_spectra(
+            pos, [xs.ObsCoreSearch(fake, name="ESO", url=xs.ESO_TAP)], timeout_s=10)
+
+    snap = xs.build_snapshot({1: HD114762, 2: HD114762}, search)
+    assert set(snap["sources"]) == {"1", "2"}
+    provider = xs.ExternalSpectraProvider(snapshot=snap, allow_network=False)
+    assert provider.bundled(1).results[0].n_spectra == 2
+    assert provider.bundled(999) is None
+    # With the network off a live search reports skipped, never "none".
+    live = provider.search(HD114762, searches=[xs.MastSearch(fake)])
+    assert live.results[0].status is xs.SearchStatus.SKIPPED

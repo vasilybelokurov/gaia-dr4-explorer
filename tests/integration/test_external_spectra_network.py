@@ -51,3 +51,14 @@ def test_matches_lie_on_the_path_of_the_star(report):
             by_archive.setdefault(r.archive, []).append(r.separation_arcsec)
     for archive, s in by_archive.items():
         assert sorted(s)[len(s) // 2] < 1.0, f"{archive}: median {sorted(s)[len(s) // 2]:.2f}"
+
+
+def test_an_empty_polarbase_answer_is_none_not_failed():
+    """HD 183633 has no PolarBase spectra; the service says OK with no table."""
+    hd183633 = xs.SkyPosition(292.77959920112164, -16.70246576342942, 2017.5,
+                              pmra_masyr=2.90, pmdec_masyr=-0.29)
+    transport = xs.LiveTransport(timeout_s=60)
+    rep = xs.search_external_spectra(
+        hd183633, [xs.SsaSearch(transport, name="PolarBase", ivoid=xs.SSA_IVOIDS["PolarBase"])],
+        timeout_s=90)
+    assert rep.results[0].status is xs.SearchStatus.NONE, rep.results[0].error

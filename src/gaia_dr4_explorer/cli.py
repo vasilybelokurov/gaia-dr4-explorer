@@ -37,6 +37,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("cache-info", help="show what is in the cache")
 
+    snap = sub.add_parser(
+        "snapshot-spectra",
+        help="search external archives for every prerelease source and save the result",
+    )
+    snap.add_argument("--out", type=Path, default=None,
+                      help="output JSON (default: the package resource the app ships)")
+    snap.add_argument("--timeout", type=float, default=180.0,
+                      help="wall-clock budget per source, seconds")
+
     clear = sub.add_parser("clear-cache", help="delete cached products")
     clear.add_argument("--yes", action="store_true", help="do not prompt")
 
@@ -58,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect(config, args.source_id, fit=args.fit, as_json=args.json)
     if args.command == "cache-info":
         return _cache_info(config)
+    if args.command == "snapshot-spectra":
+        return _snapshot_spectra(out=args.out, timeout_s=args.timeout)
     if args.command == "clear-cache":
         return _clear_cache(config, assume_yes=args.yes)
     return 2
@@ -192,3 +203,37 @@ def _serve(config: AppConfig, *, port: int, show: bool) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
+
+
+def _snapshot_spectra(*, out: Path | None, timeout_s: float) -> int:
+    """Search every archive for the prerelease sources; write the snapshot."""
+    from importlib.resources import files
+
+    from gaia_dr4_explorer.data import external_spectra as xs
+    from gaia_dr4_explorer.data.bundled import BundledProductProvider
+    from gaia_dr4_explorer.data.catalog import reference_fits
+
+    names = {sid: v.get("main_id", "") for sid, v in BundledProductProvider().simbad().items()}
+    positions = {
+        sid: xs.position_from_reference(values, name=names.get(sid, ""))
+        for sid, values in reference_fits().items()
+    }
+
+    def search(pos: xs.SkyPosition) -> xs.SearchReport:
+        report = xs.search_external_spectra(pos, timeout_s=timeout_s)
+        summary = ", ".join(f"{r.archive} {r.status.value}"
+                            + (f" {r.n_spectra}" if r.n_spectra else "") for r in report.results)
+        print(f"({pos.ra_deg:9.4f}, {pos.dec_deg:+8.4f}) {pos.name or '-':28} {summary}",
+              flush=True)
+        return report
+
+    snapshot = xs.build_snapshot(positions, search)
+    target = out or Path(str(files("gaia_dr4_explorer.resources") / xs.SNAPSHOT_RESOURCE))
+    target.write_text(json.dumps(snapshot, indent=1, allow_nan=False) + "\n")
+    incomplete = [sid for sid, rep in snapshot["sources"].items()
+                  if not xs.SearchReport.from_dict(rep).complete()]
+    print(f"wrote {target} ({len(snapshot['sources'])} sources"
+          + (f"; incomplete searches for {len(incomplete)}: {incomplete}" if incomplete else "")
+          + ")")
+    return 0
+
