@@ -15,6 +15,7 @@ view -- is the same code the server profile runs.
 
 import io
 import zipfile
+from pathlib import Path
 
 import panel as pn
 
@@ -22,7 +23,8 @@ from _bundled_data import prerelease_zip_bytes
 from gaia_dr4_explorer import __version__
 from gaia_dr4_explorer.data.bundled import BundledProductProvider
 from gaia_dr4_explorer.data.catalog import catalog, reference_fits
-from gaia_dr4_explorer.data.external_spectra import ExternalSpectraProvider
+from gaia_dr4_explorer.data.external_spectra import ExternalSpectraProvider, Transport
+from gaia_dr4_explorer.data.spectrum_files import FileResolutionError, SpectrumFileStore
 from gaia_dr4_explorer.domain import SourceContext, SourceKey
 from gaia_dr4_explorer.domain.product import ProductState
 from gaia_dr4_explorer.products import registry
@@ -61,6 +63,52 @@ SOURCE_IDS = sorted({int(v) for v in TABLE["source_id"]})
 ENTRIES = catalog()
 FITS = reference_fits()
 EXTERNAL = ExternalSpectraProvider(allow_network=False)
+
+
+class BrowserTransport(Transport):
+    """Downloads from the page itself, for the archives that allow it.
+
+    A web page may fetch a file only if the archive sends a CORS header.
+    Checked 2026-09-23: ESO's direct file server and MAST's IUE server do;
+    MAST's HST/SDSS download service, CADC, PolarBase and the SDSS server do
+    not, and CfA and ELODIE are plain http, which an https page cannot fetch.
+    The Python here runs in a web worker, where a synchronous request may
+    return binary data.
+    """
+
+    ALLOWED = ("https://dataportal.eso.org/", "https://archive.stsci.edu/")
+
+    def get_bytes(self, url, max_bytes):
+        from js import XMLHttpRequest
+
+        url = url.replace("http://archive.stsci.edu/", "https://archive.stsci.edu/")
+        if not url.startswith(self.ALLOWED):
+            raise FileResolutionError(NOT_IN_BROWSER)
+        req = XMLHttpRequest.new()
+        req.open("GET", url, False)
+        req.responseType = "arraybuffer"
+        req.send(None)
+        if req.status != 200:
+            raise FileResolutionError(f"{url} answered HTTP {req.status}")
+        data = req.response.to_py().tobytes()
+        if len(data) > max_bytes:
+            raise FileResolutionError(f"{len(data) / 1e6:.0f} MB exceeds the limit")
+        return data
+
+
+NOT_IN_BROWSER = ("This archive does not let a web page fetch its files, so this "
+                  "spectrum can be downloaded and plotted only in the local app. "
+                  "The file link opens it directly.")
+
+BROWSER_STORE = SpectrumFileStore(Path("/tmp/gaia-dr4-explorer"), BrowserTransport(),
+                                  max_bytes=100_000_000)
+
+
+def browser_loader(record):
+    """ESO and MAST IUE spectra download in the page; the others cannot."""
+    if not (record.archive == "ESO" or (record.archive == "MAST" and record.collection == "IUE")):
+        raise FileResolutionError(NOT_IN_BROWSER)
+    return BROWSER_STORE.load(record)
 
 # The Gaia archive sends no CORS header, so a page cannot reach it. The DR3
 # products for these twelve sources ship with the package instead.
@@ -170,7 +218,7 @@ def build(source_id):
             # The archive search is shipped with the page: a browser cannot
             # query the archives, but its file links open directly.
             content = pn.Column(content, external_spectra_section(
-                EXTERNAL.bundled(int(source_id))))
+                EXTERNAL.bundled(int(source_id)), loader=browser_loader))
         tabs.append((title, content))
     return object_tabs(*tabs, dynamic=True)
 
