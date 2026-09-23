@@ -41,8 +41,11 @@ jobs:
       - name: Check the build is self-contained
         run: |
           test -f site/index.html
-          test -f site/app.js
-          test -f site/app.resources.zip
+          # Worker and resources carry content hashes, so a deploy is never
+          # served from a stale browser cache; index.html must name them.
+          js=$(ls site/app.*.js); zip=$(ls site/app.resources.*.zip)
+          grep -q "$(basename "$js")" site/index.html
+          grep -q "$(basename "$zip")" "$js"
           # No credential may reach a public artifact.
           ! grep -rqiE "ADS_API_TOKEN|api[_-]?key['\"]?\s*[:=]\s*['\"][A-Za-z0-9]{16}" site/
           echo "site is $(du -sh site | cut -f1)"

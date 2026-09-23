@@ -353,7 +353,7 @@ def _segments(frame, cols) -> list:
 
 #: Frame of a sky panel, in screen pixels. Fixed, so that the limits below
 #: can give both axes the same scale in mas per pixel.
-SKY_FRAME = (720, 480)
+SKY_FRAME = (600, 420)
 
 
 def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
@@ -461,8 +461,13 @@ def sky_epochs(
     return hv.Overlay(layers).opts(**opts)
 
 
-def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> hv.Layout:
-    """Δα* and Δδ of the used observations against time, model drawn over them."""
+def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> list:
+    """Δα* and Δδ of the used observations against time, model drawn over them.
+
+    Returns a list of two plots rather than an ``hv.Layout``: a Layout's
+    GridPlot carries no size of its own and collapsed to zero width in the
+    browser build.
+    """
     used = epochs[epochs["used"]] if len(epochs) else epochs
     panels = []
     for k, (col, label) in enumerate((("dra", "Δα* [mas]"), ("ddec", "Δδ [mas]"))):
@@ -480,9 +485,9 @@ def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> hv
                 kdims=["obs_time_jyear_tcb"], vdims=[col], label=model_label,
             ).opts(color="#d62728", line_width=1.4)
         panels.append(layer.opts(
-            responsive=True, height=260, legend_position="top_left",
-            xlabel="Observation time [yr, TCB]", ylabel=label, title=f"{label} against time",
+            frame_width=SKY_FRAME[0], frame_height=220, legend_position="right",
+            xlabel="Observation time [yr, TCB]", ylabel=label,
+            # "dra" here is a y axis; linked, it would take panel 1's x range.
+            shared_axes=False,
         ))
-    if not panels:
-        return _empty("No sky-plane positions to show")
-    return hv.Layout(panels).cols(1)
+    return panels or [_empty("No sky-plane positions to show")]

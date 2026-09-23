@@ -112,6 +112,30 @@ def test_sky_panels_have_equal_scale_on_both_axes(payload, context):
 
     model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
     for f in _sky_figures(SkyPlaneView(context=context, payload=payload, model=model)):
+        # A stretching container overrides the frame, and with it the scale.
+        assert f.frame_width == SKY_FRAME[0] and f.frame_height == SKY_FRAME[1]
+        assert not str(f.sizing_mode or "").startswith("stretch"), f.sizing_mode
         mx = abs(f.x_range.end - f.x_range.start) / SKY_FRAME[0]
         my = abs(f.y_range.end - f.y_range.start) / SKY_FRAME[1]
         assert mx == pytest.approx(my, rel=1e-6), "mas per pixel differs between axes"
+
+
+def test_time_panels_are_sized_and_independent(payload, context):
+    """Regression: an hv.Layout's GridPlot has no size and collapsed to zero
+    width in the browser; and a linked "dra" y axis would take panel 1's range."""
+    import holoviews as hv
+    from bokeh.models import GridPlot, Plot
+
+    hv.extension("bokeh")
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    view = SkyPlaneView(context=context, payload=payload, model=model)
+    root = view.layout().get_root()
+    refs = list(root.references())
+    assert not any(isinstance(m, GridPlot) for m in refs)
+    figs = [m for m in refs if isinstance(m, Plot)]
+    time_figs = [f for f in figs if "time" in str(f.xaxis[0].axis_label)]
+    sky_figs = [f for f in figs if "Δα*" in str(f.xaxis[0].axis_label)]
+    assert len(time_figs) == 2 and len(sky_figs) == 2
+    for f in time_figs:
+        assert f.frame_width > 0 and f.frame_height > 0
+        assert all(f.y_range is not g.x_range for g in sky_figs)

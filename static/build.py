@@ -59,6 +59,35 @@ def embed_archive() -> Path:
     return out
 
 
+def _short_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def fingerprint(out: Path) -> None:
+    """Give the worker script and its resources content-hashed names.
+
+    GitHub Pages sends ``Cache-Control: max-age=600``. A reload revalidates
+    ``index.html`` but serves still-fresh subresources from cache, so for ten
+    minutes after a deploy a reader kept the previous Python package. With the
+    hash in the name every deploy is a new URL.
+    """
+    resources = out / "app.resources.zip"
+    worker = out / "app.js"
+    page = out / "index.html"
+    res_name = f"app.resources.{_short_hash(resources)}.zip"
+    js = worker.read_text()
+    if "'app.resources.zip'" not in js:
+        raise SystemExit("app.js no longer names 'app.resources.zip'; update fingerprint()")
+    resources.rename(out / res_name)
+    worker.write_text(js.replace("'app.resources.zip'", f"'{res_name}'"))
+    js_name = f"app.{_short_hash(worker)}.js"
+    worker.rename(out / js_name)
+    html = page.read_text()
+    if 'new Worker("./app.js")' not in html:
+        raise SystemExit("index.html no longer starts ./app.js; update fingerprint()")
+    page.write_text(html.replace('new Worker("./app.js")', f'new Worker("./{js_name}")'))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=ROOT / "site")
@@ -106,6 +135,7 @@ def main() -> int:
     )
     # GitHub Pages serves index.html; the app itself is the landing page.
     shutil.move(out / "app.html", out / "index.html")
+    fingerprint(out)
     (out / ".nojekyll").write_text("")   # keep Pages from filtering files
 
     total = sum(f.stat().st_size for f in out.rglob("*") if f.is_file())

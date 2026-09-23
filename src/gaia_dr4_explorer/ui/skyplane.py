@@ -104,7 +104,8 @@ class SkyPlaneView(param.Parameterized):
                 show_errors=self.show_errors, proper_motion_removed=pm_removed,
                 model_label=self.model_label,
             ),
-            sizing_mode="stretch_width",
+            # No stretch sizing: it overrides the fixed frame the plot needs
+            # for equal mas per pixel, and collapsed panel 3 in the browser.
         )
 
     @param.depends("show_model", "show_constraints", "show_errors", "show_rejected",
@@ -126,11 +127,10 @@ class SkyPlaneView(param.Parameterized):
     @param.depends("show_model")
     def components(self):
         """Panel 3: Δα* and Δδ against time, measured and modelled."""
-        return pn.pane.HoloViews(
-            plots.sky_offsets_vs_time(
-                self._epochs(), self._track(), model_label=self.model_label),
-            sizing_mode="stretch_width",
-        )
+        return pn.Column(*[
+            pn.pane.HoloViews(p) for p in plots.sky_offsets_vs_time(
+                self._epochs(), self._track(), model_label=self.model_label)
+        ])
 
     def controls(self) -> pn.Column:
         names = ["show_constraints", "show_errors", "show_rejected", "constraint_length"]
