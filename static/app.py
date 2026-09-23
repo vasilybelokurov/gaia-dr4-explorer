@@ -221,4 +221,8 @@ pn.template.FastListTemplate(
     main=[body],
     sidebar_width=330,
     accent="#2c3e50",
+    # No theme switch: it only reloaded the page here (the page is pre-rendered
+    # light and ?theme=dark was never applied), and the app's own HTML and
+    # plots assume a light background.
+    theme_toggle=False,
 ).servable()

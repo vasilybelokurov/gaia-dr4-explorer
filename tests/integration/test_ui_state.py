@@ -82,3 +82,16 @@ def test_selecting_an_absent_source_is_rejected_not_crashed(state, plugin):
     assert plugin.discover(state.context()).state.value == "unavailable"
     state.source_id = good
     assert plugin.discover(state.context()).state.value == "available"
+
+
+def test_template_has_no_theme_switch(tmp_path):
+    """The switch reloaded the page without changing the theme; it is removed."""
+    from tests.conftest import PRERELEASE_ZIP
+
+    from gaia_dr4_explorer.config import AppConfig
+    from gaia_dr4_explorer.data import PreReleaseProvider
+    from gaia_dr4_explorer.ui.shell import build_app
+
+    provider = PreReleaseProvider(AppConfig(cache_dir=tmp_path, local_prerelease_zip=PRERELEASE_ZIP,
+                                            allow_network=False))
+    assert build_app(provider, allow_fit=False).theme_toggle is False

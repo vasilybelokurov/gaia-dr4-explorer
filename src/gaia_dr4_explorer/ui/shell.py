@@ -188,6 +188,10 @@ def build_app(
         main=[body],
         sidebar_width=330,
         accent="#2c3e50",
+        # No theme switch: in the browser build it only reloaded the page (the
+        # page is pre-rendered light and ?theme=dark was never applied), and
+        # the app's own HTML and plots assume a light background.
+        theme_toggle=False,
     )
     return template
 
