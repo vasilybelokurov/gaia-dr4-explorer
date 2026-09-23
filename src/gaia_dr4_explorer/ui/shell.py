@@ -265,7 +265,14 @@ def _external_spectra(context, provider, *, live: bool) -> pn.Column:
         position = xs.position_from_reference(values, name=name)
         live_search = lambda: archives.search(position, source_id=context.source_id)  # noqa: E731
     latest, origin = archives.latest(context.source_id)
-    return external_spectra_section(latest, live_search, origin=origin)
+    loader = None
+    if live and getattr(config, "cache_dir", None) is not None:
+        from gaia_dr4_explorer.data.spectrum_files import SpectrumFileStore
+
+        store = SpectrumFileStore(config.cache_dir, xs.LiveTransport(timeout_s=120),
+                                  allow_network=getattr(config, "allow_network", True))
+        loader = store.load
+    return external_spectra_section(latest, live_search, origin=origin, loader=loader)
 
 
 def _product_tab(state, plugin, context) -> pn.Column:
@@ -335,6 +342,7 @@ def _plugin_status(plugins) -> pn.pane.HTML:
     return pn.pane.HTML(
         f"<b>Products</b><ul style='font-size:11px;color:#555;margin:4px 0 0 16px;padding:0'>"
         f"{items}</ul>"
-        "<div style='font-size:11px;color:#888;margin-top:6px'>Spectra and external "
-        "context are not yet implemented.</div>"
+        "<div style='font-size:11px;color:#888;margin-top:6px'>Spectra: Gaia DR3 XP, "
+        "plus spectra found in other archives (MAST, ESO, CADC, CfA, PolarBase, "
+        "ELODIE, ...), downloaded when ticked.</div>"
     )
