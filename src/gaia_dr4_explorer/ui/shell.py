@@ -96,7 +96,11 @@ def build_app(
         else:
             tabs.append(("Source fit", _static_fit_notice(context)))
         tabs.append(("Sky plane", _sky_tab(state, payload, context, allow_fit=allow_fit)))
-        tabs.append(("Photometry", _product_tab(state, photometry, context)))
+        tabs.append(("Photometry", pn.Column(
+            _product_tab(state, photometry, context),
+            _ztf(context, provider, live=True),
+            sizing_mode="stretch_width",
+        )))
         tabs.append(("Spectra", pn.Column(
             _product_tab(state, spectra, context),
             _external_spectra(context, provider, live=True),
@@ -245,6 +249,26 @@ def _sky_tab(state, payload, context, *, allow_fit: bool) -> pn.Column:
     button.on_click(draw)
     show(extra=button)
     return out
+
+
+def _ztf(context, provider, *, live: bool) -> pn.Column:
+    """The ZTF light-curve section, shown whether or not Gaia photometry exists."""
+    from gaia_dr4_explorer.data import external_spectra as xs
+    from gaia_dr4_explorer.data import ztf
+    from gaia_dr4_explorer.data.catalog import reference_fits
+    from gaia_dr4_explorer.ui.ztf import ztf_section
+
+    config = getattr(provider, "config", None)
+    values = reference_fits().get(context.source_id)
+    position = xs.position_from_reference(values) if values is not None else None
+    archive = ztf.ZtfProvider(
+        xs.LiveTransport(timeout_s=300), cache_dir=getattr(config, "cache_dir", None),
+        release=context.release, allow_network=getattr(config, "allow_network", True))
+    latest, origin = archive.latest(context.source_id, position)
+    fetch = None
+    if live and position is not None:
+        fetch = lambda: archive.fetch(position, source_id=context.source_id)  # noqa: E731
+    return ztf_section(latest, fetch, origin=origin)
 
 
 def _external_spectra(context, provider, *, live: bool) -> pn.Column:

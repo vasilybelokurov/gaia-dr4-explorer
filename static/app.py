@@ -23,8 +23,13 @@ from _bundled_data import prerelease_zip_bytes
 from gaia_dr4_explorer import __version__
 from gaia_dr4_explorer.data.bundled import BundledProductProvider
 from gaia_dr4_explorer.data.catalog import catalog, reference_fits
-from gaia_dr4_explorer.data.external_spectra import ExternalSpectraProvider, Transport
+from gaia_dr4_explorer.data.external_spectra import (
+    ExternalSpectraProvider,
+    Transport,
+    position_from_reference,
+)
 from gaia_dr4_explorer.data.spectrum_files import FileResolutionError, SpectrumFileStore
+from gaia_dr4_explorer.data.ztf import ZtfProvider
 from gaia_dr4_explorer.domain import SourceContext, SourceKey
 from gaia_dr4_explorer.domain.product import ProductState
 from gaia_dr4_explorer.products import registry
@@ -36,6 +41,7 @@ from gaia_dr4_explorer.ui.astrometry import AstrometryView
 from gaia_dr4_explorer.ui.components import caveat, object_tabs, release_badge
 from gaia_dr4_explorer.ui.external_spectra import external_spectra_section
 from gaia_dr4_explorer.ui.overview import overview_panel
+from gaia_dr4_explorer.ui.ztf import ztf_section
 
 pn.extension("tabulator", sizing_mode="stretch_width")
 
@@ -63,6 +69,7 @@ SOURCE_IDS = sorted({int(v) for v in TABLE["source_id"]})
 ENTRIES = catalog()
 FITS = reference_fits()
 EXTERNAL = ExternalSpectraProvider(allow_network=False)
+ZTF = ZtfProvider(allow_network=False)
 
 
 class BrowserTransport(Transport):
@@ -214,6 +221,13 @@ def build(source_id):
             except Exception as exc:
                 content = pn.pane.HTML(
                     f"<div style='color:#c0392b'>Could not load {title}: {exc}</div>")
+        if title == "Photometry":
+            # ZTF is shown whether or not Gaia published photometry; IRSA sends
+            # no CORS header, so the light curve is the one shipped with the page.
+            values = FITS.get(int(source_id))
+            position = position_from_reference(values) if values else None
+            latest, origin = ZTF.latest(int(source_id), position)
+            content = pn.Column(content, ztf_section(latest, origin=origin))
         if title == "Spectra":
             # The archive search is shipped with the page: a browser cannot
             # query the archives, but its file links open directly.

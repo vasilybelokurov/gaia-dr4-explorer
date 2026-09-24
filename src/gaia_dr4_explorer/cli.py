@@ -46,6 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
     snap.add_argument("--timeout", type=float, default=180.0,
                       help="wall-clock budget per source, seconds")
 
+    ztf = sub.add_parser(
+        "snapshot-ztf", help="fetch ZTF light curves for every prerelease source and save them")
+    ztf.add_argument("--out", type=Path, default=None,
+                     help="output JSON (default: the package resource the app ships)")
+    ztf.add_argument("--timeout", type=float, default=300.0,
+                     help="socket timeout per request, seconds (IRSA can be slow)")
+
     clear = sub.add_parser("clear-cache", help="delete cached products")
     clear.add_argument("--yes", action="store_true", help="do not prompt")
 
@@ -69,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cache_info(config)
     if args.command == "snapshot-spectra":
         return _snapshot_spectra(out=args.out, timeout_s=args.timeout)
+    if args.command == "snapshot-ztf":
+        return _snapshot_ztf(out=args.out, timeout_s=args.timeout)
     if args.command == "clear-cache":
         return _clear_cache(config, assume_yes=args.yes)
     return 2
@@ -236,4 +245,22 @@ def _snapshot_spectra(*, out: Path | None, timeout_s: float) -> int:
           + (f"; incomplete searches for {len(incomplete)}: {incomplete}" if incomplete else "")
           + ")")
     return 0
+
+
+def _snapshot_ztf(*, out: Path | None, timeout_s: float) -> int:
+    """Fetch ZTF light curves for the prerelease sources; write the snapshot."""
+    from importlib.resources import files
+
+    from gaia_dr4_explorer.data import external_spectra as xs
+    from gaia_dr4_explorer.data import ztf
+    from gaia_dr4_explorer.data.catalog import reference_fits
+
+    positions = {sid: xs.position_from_reference(v) for sid, v in reference_fits().items()}
+    provider = ztf.ZtfProvider(xs.LiveTransport(timeout_s=timeout_s))
+    snapshot = ztf.build_snapshot(positions, provider)
+    target = out or Path(str(files("gaia_dr4_explorer.resources") / ztf.ZtfProvider.SNAPSHOT_RESOURCE))
+    target.write_text(json.dumps(snapshot, indent=1, allow_nan=False) + "\n")
+    print(f"wrote {target} ({len(snapshot['sources'])} sources"
+          + (f"; FAILED {sorted(snapshot['failed'])}" if snapshot["failed"] else "") + ")")
+    return 1 if snapshot["failed"] else 0
 

@@ -188,3 +188,52 @@ def _empty(message: str) -> hv.Text:
     return hv.Text(0.5, 0.5, message).opts(
         xaxis=None, yaxis=None, responsive=True, height=200, color="#888888"
     )
+
+
+# ------------------------------------------------------------------ ZTF
+
+#: ZTF band colours, distinct from Gaia's G/BP/RP.
+ZTF_COLOURS = {"g": "#2ca02c", "r": "#d62728", "i": "#8c564b"}
+
+
+def ztf_light_curve(frame: pd.DataFrame, *, show_flagged: bool = True) -> hv.Element:
+    """ZTF magnitude against time, per band; flagged points as grey crosses.
+
+    Parameters
+    ----------
+    frame : DataFrame
+        From :func:`gaia_dr4_explorer.data.ztf.parse_ztf_csv`: ``mjd``,
+        ``mag``, ``magerr``, ``band``, ``clean``, ``oid``, ``sep_arcsec``.
+    show_flagged : bool
+        Draw points with ``catflags != 0``. They are never removed from the
+        data, only hidden from the plot on request.
+    """
+    if frame is None or not len(frame):
+        return _empty("No ZTF points near this source")
+    f = frame.copy()
+    f["year"] = 2000.0 + (f["mjd"] - 51544.5) / 365.25
+    f["oid_str"] = f["oid"].astype("int64").astype(str)   # 64-bit ids lose digits as floats
+    hover = [c for c in ("mjd", "magerr", "catflags", "oid_str", "sep_arcsec", "limitmag")
+             if c in f.columns]
+    layers = []
+    for band in ("g", "r", "i"):
+        d = f[f["band"] == band]
+        clean = d[d["clean"]]
+        if len(clean):
+            layers.append(hv.ErrorBars(clean, kdims=["year"], vdims=["mag", "magerr"]).opts(
+                color=ZTF_COLOURS[band], alpha=0.4, line_width=1))
+            layers.append(hv.Scatter(clean, kdims=["year"], vdims=["mag", *hover],
+                                     label=f"ZTF {band} ({len(clean)})").opts(
+                color=ZTF_COLOURS[band], size=4, tools=["hover"]))
+        flagged = d[~d["clean"]]
+        if show_flagged and len(flagged):
+            layers.append(hv.Scatter(flagged, kdims=["year"], vdims=["mag", *hover],
+                                     label=f"ZTF {band} flagged ({len(flagged)})").opts(
+                color="#999999", marker="x", size=6, alpha=0.8, tools=["hover"]))
+    if not layers:
+        return _empty("Only flagged ZTF points; tick “show flagged points” to see them")
+    return hv.Overlay(layers).opts(
+        responsive=True, height=360, legend_position="right", invert_yaxis=True,
+        xlabel="Observation time [yr, from ZTF MJD]", ylabel="ZTF magnitude [mag]",
+        title="ZTF light curve", shared_axes=False,
+    )
