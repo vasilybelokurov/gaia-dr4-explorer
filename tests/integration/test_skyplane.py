@@ -249,3 +249,38 @@ def test_error_bar_lies_along_the_scan_with_length_two_sigma():
     w = skyplane.along_scan(e["dra"].to_numpy(), e["ddec"].to_numpy(), theta)
     assert w == pytest.approx([3.0, -1.0], abs=1e-12)
     assert "dra" not in frame, "the input frame must not be modified"
+
+
+def _transit_factors(provider, sid):
+    """Per transit: time, scan angle, both published parallax factors, reference point."""
+    ccd = normalize_epoch_astrometry(provider.raw_table_for(sid)).ccd
+    f = lambda n: np.asarray(np.ma.filled(ccd[n], np.nan), dtype="float64")  # noqa: E731
+    good = np.isfinite(f("parallax_factor_al")) & np.isfinite(f("parallax_factor_ac"))
+    _, first = np.unique(f("transit_id")[good], return_index=True)
+    sel = np.flatnonzero(good)[first]
+    ns = np.asarray(np.ma.filled(ccd["obs_time_tcb"], 0), dtype="int64")[sel]
+    return (tcb_ns_to_time(ns), f("scan_pos_angle")[sel], f("parallax_factor_al")[sel],
+            f("parallax_factor_ac")[sel], f("ra0")[sel], f("dec0")[sel])
+
+
+@pytest.mark.parametrize("sid", [HD183633, BH3, QSO, 1663617687609809280])
+def test_across_scan_parallax_factor_follows_the_across_scan_convention(provider, sid):
+    """parallax_factor_ac = -dra_plx cos(theta) + ddec_plx sin(theta), the sign
+    already validated on calculated_pos_ac; the opposite sign is rejected."""
+    time, theta, _, p_ac, ra0, dec0 = _transit_factors(provider, sid)
+    dra, ddec = skyplane.parallax_displacement(time, ra0, dec0)
+    right = skyplane.across_scan(dra, ddec, theta)
+    rms = lambda v: float(np.sqrt(np.mean((v - p_ac) ** 2)))  # noqa: E731
+    # The same ~0.01 AU Earth-vs-Gaia bound as the along-scan factor.
+    assert rms(right) < 0.02, f"{sid}: rms {rms(right):.4f}"
+    assert rms(-right) > 20 * rms(right)
+
+
+@pytest.mark.parametrize("sid", [HD183633, BH3, QSO])
+def test_published_parallax_factors_rotate_to_the_sky_displacement(provider, sid):
+    """Rotating (parallax_factor_al, parallax_factor_ac) to the sky gives the
+    parallactic displacement per mas, to Gaia's ~0.01 AU offset from Earth."""
+    time, theta, p_al, p_ac, ra0, dec0 = _transit_factors(provider, sid)
+    dra, ddec = skyplane.parallax_displacement(time, ra0, dec0)
+    sx, sy = skyplane.local_plane_to_sky(p_al, p_ac, theta)
+    assert float(np.max(np.hypot(sx - dra, sy - ddec))) < 0.03

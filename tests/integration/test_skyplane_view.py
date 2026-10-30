@@ -34,6 +34,14 @@ def payload(tmp_path_factory):
     return _Payload(normalize_epoch_astrometry(provider.raw_table_for(HD114762)).ccd)
 
 
+@pytest.fixture(autouse=True)
+def _bokeh():
+    """Drawing needs a plotting extension; without this the tests passed only
+    when an earlier test had loaded one."""
+    import holoviews as hv
+    hv.extension("bokeh")
+
+
 @pytest.fixture
 def context():
     return SourceContext(key=SourceKey("Gaia DR4_RC3", HD114762))
@@ -53,6 +61,7 @@ def test_data_view_needs_no_model_and_keeps_rejected_rows(payload, context):
     view.sky()
     # Without a model there is no proper motion to remove: a note, not a plot.
     assert isinstance(view.sky_pm_removed(), pn.pane.HTML)
+    assert isinstance(view.sky_pm_parallax_removed(), pn.pane.HTML)
     view.components()
 
 
@@ -73,6 +82,7 @@ def test_model_overlay_and_proper_motion_removal(payload, context):
     assert view._track() is None
     view.sky()
     view.sky_pm_removed()
+    view.sky_pm_parallax_removed()
     view.components()
 
 
@@ -103,12 +113,14 @@ def test_sky_panels_do_not_share_ranges(payload, context):
     parallax ellipse shrank to a dot."""
     model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
     figs = _sky_figures(SkyPlaneView(context=context, payload=payload, model=model))
-    assert len(figs) == 2
-    a, b = figs
-    assert a.x_range is not b.x_range and a.y_range is not b.y_range
+    assert len(figs) == 3
+    for i, a in enumerate(figs):
+        for b in figs[i + 1:]:
+            assert a.x_range is not b.x_range and a.y_range is not b.y_range
     spans = sorted(abs(f.x_range.end - f.x_range.start) for f in figs)
-    # As observed the track spans ~2900 mas in RA; the parallax ellipse ~55 mas.
-    assert spans[1] > 2500 and spans[0] < 200, spans
+    # As observed the track spans ~2900 mas in RA; the parallax ellipse ~55 mas;
+    # with parallax removed the orbit residuals span a few mas.
+    assert spans[2] > 2500 and 20 < spans[1] < 200 and spans[0] < 20, spans
 
 
 def test_sky_panels_have_equal_scale_on_both_axes(payload, context):
@@ -139,7 +151,7 @@ def test_time_panels_are_sized_and_independent(payload, context):
     figs = [m for m in refs if isinstance(m, Plot)]
     time_figs = [f for f in figs if "time" in str(f.xaxis[0].axis_label)]
     sky_figs = [f for f in figs if "Δα*" in str(f.xaxis[0].axis_label)]
-    assert len(time_figs) == 2 and len(sky_figs) == 2
+    assert len(time_figs) == 2 and len(sky_figs) == 3
     for f in time_figs:
         assert f.frame_width > 0 and f.frame_height > 0
         assert all(f.y_range is not g.x_range for g in sky_figs)
@@ -151,7 +163,7 @@ def test_panels_are_arranged_in_two_rows(payload, context):
     model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
     view = SkyPlaneView(context=context, payload=payload, model=model)
     boxes = [o for o in view.panel().objects if isinstance(o, pn.FlexBox)]
-    assert boxes and len(boxes[0].objects) == 2, "sky panels are not side by side"
+    assert boxes and len(boxes[0].objects) == 3, "sky panels are not side by side"
     assert boxes[0].flex_wrap == "wrap"
     comps = view.components()
     assert isinstance(comps, pn.FlexBox) and len(comps.objects) == 2
@@ -171,3 +183,59 @@ def test_sky_controls_are_one_line_of_individually_sized_widgets(payload, contex
     assert all(b.width and b.width < 320 for b in boxes)
     # The four checkboxes fit in one line of the ~1090 px pane at 1512 px.
     assert sum(b.width for b in boxes) < 1000
+
+
+HD183633 = 4181040337841125632
+BH3 = 4318465066420528000
+
+
+def _view(tmp_path_factory, sid):
+    provider = PreReleaseProvider(AppConfig(
+        cache_dir=tmp_path_factory.mktemp("cache"), local_prerelease_zip=PRERELEASE_ZIP, allow_network=False))
+    payload = _Payload(normalize_epoch_astrometry(provider.raw_table_for(sid)).ccd)
+    model = skyplane.SkyModel.from_reference(reference_fits()[sid])
+    return SkyPlaneView(context=SourceContext(key=SourceKey("Gaia DR4_RC3", sid)), payload=payload, model=model)
+
+
+def test_removing_parallax_leaves_noise_for_a_single_star_and_the_orbit_for_bh3(tmp_path_factory):
+    """Panel 3 subtracts proper motion and parallax from the data. For a single
+    star the along-scan residual is the measurement noise; for Gaia BH3 it is the
+    orbit, tens of times larger."""
+    def along_scan_rms(sid):
+        view = _view(tmp_path_factory, sid)
+        e = view._epochs(pm_removed=True, parallax_removed=True)
+        u = e[e["used"]]
+        w = skyplane.along_scan(u["dra"] - view.model.delta_alpha_star,
+                                u["ddec"] - view.model.delta_delta, u["scan_pos_angle"])
+        return float(np.std(w)), float(np.median(u["centroid_pos_error_al"]))
+
+    rms, sigma = along_scan_rms(HD183633)
+    assert rms < 1.5 * sigma, (rms, sigma)
+    rms_bh3, sigma_bh3 = along_scan_rms(BH3)
+    assert rms_bh3 > 30 * sigma_bh3, (rms_bh3, sigma_bh3)
+
+
+def test_parallax_removal_is_pm_removal_minus_the_published_factors(payload, context):
+    model = skyplane.SkyModel.from_reference(reference_fits()[HD114762])
+    view = SkyPlaneView(context=context, payload=payload, model=model)
+    pm = view._epochs(pm_removed=True)
+    both = view._epochs(pm_removed=True, parallax_removed=True)
+    px, py = skyplane.local_plane_to_sky(
+        pm["parallax_factor_al"], pm["parallax_factor_ac"], pm["scan_pos_angle"])
+    ok = np.isfinite(px)
+    assert np.allclose(both["dra"][ok], (pm["dra"] - model.parallax * px)[ok])
+    assert np.allclose(both["ddec"][ok], (pm["ddec"] - model.parallax * py)[ok])
+    # Rows with no parallax factor cannot be placed after its removal; none is used by AGIS.
+    assert both["dra"][~ok].isna().all() and not both["used"][~ok].any()
+    # The track of panel 3 is the constant reference offset.
+    t, x, y = view._track(pm_removed=True, parallax_removed=True)
+    assert np.allclose(x, model.delta_alpha_star) and np.allclose(y, model.delta_delta)
+
+
+def test_three_sky_panels_fit_side_by_side_at_1512_px():
+    """Measured in the local app at a 1512 px window: the row is ~1048 px wide
+    (1060 px of panels wrapped the third one)."""
+    from gaia_dr4_explorer.ui import skyplane as ui
+
+    total = 2 * ui.SKY_PANEL_WIDTH + ui.SKY_PANEL_WIDTH_WITH_COLORBAR + 2 * ui.PANEL_GAP[1]
+    assert total <= 1040, total

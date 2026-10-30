@@ -352,8 +352,12 @@ def _segments(frame, cols) -> list:
 
 
 #: Frame of a sky panel, in screen pixels. Fixed, so that the limits below
-#: can give both axes the same scale in mas per pixel.
-SKY_FRAME = (360, 340)
+#: can give both axes the same scale in mas per pixel. Three sky panels share
+#: one row of the pane at a 1512 px window (~1048 px usable, measured), hence the size.
+SKY_FRAME = (210, 200)
+
+#: Frame width of a time panel: two share a row, so they keep the larger size.
+TIME_FRAME_WIDTH = 360
 
 
 def equal_scale_limits(x, y, frame=SKY_FRAME, pad: float = 0.06):
@@ -423,13 +427,14 @@ def sky_epochs(
         layers.append(hv.Points(
             rejected, kdims=["dra", "ddec"],
             vdims=[c for c in SKY_HOVER if c in rejected.columns and c not in ("dra", "ddec")],
-            label=f"rejected ({len(rejected)})",
+            # Short labels: the legend must fit under a 210 px frame (counts are in the text above).
+            label="rejected",
         ).opts(color="#999999", marker="x", size=6, alpha=0.7, tools=["hover"]))
     if len(used):
         layers.append(hv.Points(
             used, kdims=["dra", "ddec"],
             vdims=[c for c in SKY_HOVER if c in used.columns and c not in ("dra", "ddec")],
-            label=f"measured ({len(used)})",
+            label="measured",
         ).opts(
             color="obs_time_jyear_tcb", cmap="viridis", colorbar=colorbar, size=5,
             alpha=0.9, tools=["hover"], clabel="observation time [yr, TCB]",
@@ -438,9 +443,14 @@ def sky_epochs(
         ))
     if track is not None:
         _, tdra, tddec = track
-        layers.append(hv.Curve(
-            (tdra, tddec), kdims=["dra"], vdims=["ddec"], label=model_label,
-        ).opts(color="#d62728", line_width=1.6, alpha=0.9))
+        if len(tdra) == 1:   # with motion and parallax removed the model is a fixed point
+            layers.append(hv.Points(
+                (tdra, tddec), kdims=["dra", "ddec"], label=model_label,
+            ).opts(color="#d62728", marker="cross", size=16, line_width=2))
+        else:
+            layers.append(hv.Curve(
+                (tdra, tddec), kdims=["dra"], vdims=["ddec"], label=model_label,
+            ).opts(color="#d62728", line_width=1.6, alpha=0.9))
     if not layers:
         return _empty("No observations to place on the sky")
 
@@ -454,7 +464,7 @@ def sky_epochs(
         # Below, not beside: the two sky panels sit side by side.
         legend_position="bottom", title="",
         toolbar="above",   # beside the colour bar it ran into the next panel
-        xlabel="Δα* [mas]  (from the reference point ra0, dec0)", ylabel="Δδ [mas]",
+        xlabel="Δα* [mas] (from ra0, dec0)", ylabel="Δδ [mas]",
         invert_xaxis=True,   # RA increases to the left, as on the sky
         # Each panel keeps its own ranges: HoloViews otherwise links every plot
         # with the same dimension names, so the proper-motion-removed panel
@@ -492,7 +502,7 @@ def sky_offsets_vs_time(epochs, track=None, *, model_label: str = "model") -> li
                 kdims=["obs_time_jyear_tcb"], vdims=[col], label=model_label,
             ).opts(color="#d62728", line_width=1.4)
         panels.append(layer.opts(
-            frame_width=SKY_FRAME[0], frame_height=220, legend_position="bottom",
+            frame_width=TIME_FRAME_WIDTH, frame_height=220, legend_position="bottom",
             toolbar="above",
             xlabel="Observation time [yr, TCB]", ylabel=label,
             # "dra" here is a y axis; linked, it would take panel 1's x range.

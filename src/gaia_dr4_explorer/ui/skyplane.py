@@ -31,8 +31,9 @@ ONE_DIMENSIONAL_NOTE = (
 #: the model's full description is in the text above the plots.
 LEGEND_MODEL_LABEL = "model"
 
-#: Space between side-by-side panels, so a colour bar never meets its neighbour.
-PANEL_GAP = (0, 40, 0, 0)
+#: Space between side-by-side panels. Only the right-most sky panel has a colour
+#: bar, so it never meets a neighbour.
+PANEL_GAP = (0, 20, 0, 0)
 
 #: Widths of the panel containers, px. A FlexBox item without a width fills
 #: the row and pushes its neighbour below, so each gets frame + axes (+ the
@@ -41,7 +42,18 @@ _AXES_PX = 90    # measured: figure width = frame + 89 px
 _COLORBAR_PX = 90    # measured: + 89 px for the colour bar
 SKY_PANEL_WIDTH = plots.SKY_FRAME[0] + _AXES_PX
 SKY_PANEL_WIDTH_WITH_COLORBAR = SKY_PANEL_WIDTH + _COLORBAR_PX
-TIME_PANEL_WIDTH = plots.SKY_FRAME[0] + _AXES_PX
+TIME_PANEL_WIDTH = plots.TIME_FRAME_WIDTH + _AXES_PX
+
+PARALLAX_REMOVED_NOTE = (
+    "Panel 3 subtracts the model's proper motion and parallax from each "
+    "observation; the parallax uses Gaia's own published "
+    "<code>parallax_factor_al</code> and <code>parallax_factor_ac</code>, rotated to "
+    "the sky, so it is exact for each transit. What is left is noise for a single "
+    "star, and an orbit for a binary — but only <b>along the scan</b>: the "
+    "across-scan coordinate is AGIS's prediction, so the across-scan residual is "
+    "the difference between two models, not a measurement. An orbit therefore "
+    "shows as spokes along the scan directions, not as an ellipse."
+)
 
 
 def _checkbox_width(name: str) -> int:
@@ -84,11 +96,21 @@ class SkyPlaneView(param.Parameterized):
 
     # ------------------------------------------------------------- derived
 
-    def _epochs(self, *, pm_removed: bool = False):
+    def _epochs(self, *, pm_removed: bool = False, parallax_removed: bool = False):
         e = self.base.copy()
-        if pm_removed and self.model is not None:
-            t = e["relative_time_year"].to_numpy(dtype="float64")
-            shift_x, shift_y = self.model.pmra_star * t, self.model.pmdec * t
+        if self.model is not None and (pm_removed or parallax_removed):
+            shift_x = np.zeros(len(e))
+            shift_y = np.zeros(len(e))
+            if pm_removed:
+                t = e["relative_time_year"].to_numpy(dtype="float64")
+                shift_x, shift_y = shift_x + self.model.pmra_star * t, shift_y + self.model.pmdec * t
+            if parallax_removed:
+                # Gaia's published factors, rotated to the sky like (w, z): exact at
+                # each transit, unlike an Earth ephemeris (validated in
+                # tests/integration/test_skyplane.py). Missing factors stay missing.
+                px, py = skyplane.local_plane_to_sky(
+                    e["parallax_factor_al"], e["parallax_factor_ac"], e["scan_pos_angle"])
+                shift_x, shift_y = shift_x + self.model.parallax * px, shift_y + self.model.parallax * py
             for a, b in (("dra", "ddec"), ("ex0", "ey0"), ("ex1", "ey1")):
                 e[a] = e[a] - shift_x
                 e[b] = e[b] - shift_y
@@ -100,7 +122,7 @@ class SkyPlaneView(param.Parameterized):
         e["x0"], e["y0"], e["x1"], e["y1"] = x0, y0, x1, y1
         return e
 
-    def _track(self, *, pm_removed: bool = False):
+    def _track(self, *, pm_removed: bool = False, parallax_removed: bool = False):
         if self.model is None or not self.show_model:
             return None
         model = self.model.without_proper_motion() if pm_removed else self.model
@@ -108,6 +130,9 @@ class SkyPlaneView(param.Parameterized):
         t = t[np.isfinite(t)]
         if not t.size:
             return None
+        if parallax_removed:   # what is left of the model: the reference offset
+            return (np.array([np.median(t)]), np.array([model.delta_alpha_star]),
+                    np.array([model.delta_delta]))
         t0, t1 = float(t.min()), float(t.max())
         pad = 0.02 * (t1 - t0)
         return skyplane.smooth_track(
@@ -118,15 +143,16 @@ class SkyPlaneView(param.Parameterized):
 
     # --------------------------------------------------------------- views
 
-    def _sky(self, *, pm_removed: bool):
+    def _sky(self, *, pm_removed: bool, parallax_removed: bool = False):
         return pn.pane.HoloViews(
             plots.sky_epochs(
-                self._epochs(pm_removed=pm_removed), self._track(pm_removed=pm_removed),
+                self._epochs(pm_removed=pm_removed, parallax_removed=parallax_removed),
+                self._track(pm_removed=pm_removed, parallax_removed=parallax_removed),
                 show_rejected=self.show_rejected, show_constraints=self.show_constraints,
                 show_errors=self.show_errors, proper_motion_removed=pm_removed,
                 model_label=LEGEND_MODEL_LABEL,
                 # One colour bar, on the right-hand panel: the panels share it.
-                colorbar=pm_removed,
+                colorbar=parallax_removed,
             ),
             # No stretch sizing: it overrides the fixed frame the plot needs
             # for equal mas per pixel, and collapsed panel 3 in the browser.
@@ -148,9 +174,19 @@ class SkyPlaneView(param.Parameterized):
                 "proper motion needs a model: fit it with the button above.</div>")
         return self._sky(pm_removed=True)
 
+    @param.depends("show_model", "show_constraints", "show_errors", "show_rejected",
+                   "constraint_length")
+    def sky_pm_parallax_removed(self):
+        """Panel 3: the same, with the model's proper motion and parallax taken out."""
+        if self.model is None:
+            return pn.pane.HTML(
+                "<div style='font-size:12px;color:#666;padding:12px 0'>Removing the "
+                "proper motion and parallax needs a model: fit it with the button above.</div>")
+        return self._sky(pm_removed=True, parallax_removed=True)
+
     @param.depends("show_model")
     def components(self):
-        """Panel 3: Δα* and Δδ against time, measured and modelled."""
+        """Panel 4: Δα* and Δδ against time, measured and modelled."""
         return pn.FlexBox(*[
             pn.pane.HoloViews(p, margin=PANEL_GAP, width=TIME_PANEL_WIDTH)
             for p in plots.sky_offsets_vs_time(
@@ -207,13 +243,16 @@ class SkyPlaneView(param.Parameterized):
             # the plots have fixed frames (equal mas per pixel), so they wrap
             # rather than shrink or run off the edge.
             pn.FlexBox(
-                pn.Column(_heading("1. On the sky — measured and modelled"), self.sky,
+                pn.Column(_heading("1. On the sky, as observed"), self.sky,
                           margin=PANEL_GAP, width=SKY_PANEL_WIDTH),
-                pn.Column(_heading("2. On the sky — proper motion removed"),
-                          self.sky_pm_removed, width=SKY_PANEL_WIDTH_WITH_COLORBAR),
+                pn.Column(_heading("2. Proper motion removed"), self.sky_pm_removed,
+                          margin=PANEL_GAP, width=SKY_PANEL_WIDTH),
+                pn.Column(_heading("3. Proper motion and parallax removed"),
+                          self.sky_pm_parallax_removed, width=SKY_PANEL_WIDTH_WITH_COLORBAR),
                 flex_wrap="wrap",
             ),
-            _heading("3. Δα* and Δδ against time"),
+            caveat(PARALLAX_REMOVED_NOTE) if self.model is not None else pn.Spacer(height=0),
+            _heading("4. Δα* and Δδ against time"),
             pn.Column(self.components),
             sizing_mode="stretch_width",
         )
