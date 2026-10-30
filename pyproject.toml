@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = ["panel>=1.4", "param>=2.0", "holoviews>=1.18", "hvplot>=0.9", "bokeh>=3.3"]
+ui = ["panel>=1.4,<1.10", "param>=2.0", "holoviews>=1.18", "hvplot>=0.9", "bokeh>=3.3,<3.10"]
 dev = ["pytest>=8.0", "pytest-cov", "ruff>=0.4"]
 
 [project.scripts]
